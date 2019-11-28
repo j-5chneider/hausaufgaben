@@ -1,0 +1,232 @@
+---
+title: "Hausaufgaben"
+description: |
+  A new article created using the Radix format.
+author:
+  - name: Jürgen Schneider 
+    url: https://uni-tuebingen.de/de/28915
+    affiliation: Universität Tübingen
+date: "`r Sys.Date()`"
+output: radix::radix_article
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(rio)
+library(tidyverse)
+library(lubridate)
+library(ggstance)
+```
+
+```{r import, include=T}
+gym <- rio::import("data/gym.xls")
+gs <- rio::import("data/gs.xls")
+```
+
+```{r wrangling gs}
+
+gs <- gs %>%
+  filter(`Laufende\nNummer` != "Beispiel") %>%
+  mutate(id = as.numeric(`Laufende\nNummer`))
+
+## Korrektur von Daten auf Basis der Abweichungen
+ # Falschberechnungen der `Min Beginn seit Std-Anfang` (id == 189, 248, 329) werden übersprungen
+ # da die selbst berechnete variable `beg_hw_min` verwendet wird
+ # aufgrund der unterschiedlichen Zeitzone muss zusätzlich noch eine h drauf gerechnet werden
+gs[which(gs$id == 105), "Uhrzeit Beginn HA Vergabe"] <- "1899-12-31 11:48:00"    # Ergibt sich aus der Länge der Vergabe, Ende der Vergabe und h-Anfang
+gs[which(gs$id == 105), "Uhrzeit Ende Vergabe"] <- "1899-12-31 11:51:00"         # Ergibt sich aus der Länge der Vergabe, Ende der Vergabe und h-Anfang
+gs[which(gs$id == 120), "Uhrzeit Beginn HA Vergabe"] <- "1899-12-31 11:58:00"    # Ergibt sich aus der Länge der Vergabe, Ende der Vergabe und h-Anfang
+
+
+# new var
+gs <- gs %>%
+  mutate(beg_plan = hm(format(strptime(`Uhrzeit Beginn der Std laut Plan`,"%Y-%m-%d %H:%M:%S"),'%H:%M')),
+         end_plan = hm(format(strptime(`Uhrzeit Ende der Std laut Plan`,"%Y-%m-%d %H:%M:%S"),'%H:%M')),
+         beg_act  = hm(format(strptime(`Uhrzeit Realer Beginn der Std`,"%Y-%m-%d %H:%M:%S"),'%H:%M')),
+         beg_hw   = hm(format(strptime(`Uhrzeit Beginn HA Vergabe`,"%Y-%m-%d %H:%M:%S"),'%H:%M')),
+         end_hw   = hm(format(strptime(`Uhrzeit Ende Vergabe`,"%Y-%m-%d %H:%M:%S"),'%H:%M')),
+         stunde   = hour(end_plan - beg_plan)*60 + minute(end_plan - beg_plan),             # geplante Länge der Unterrichtsstunde
+         beg_hw_min = hour(beg_hw - beg_plan)*60 + minute(beg_hw - beg_plan),               # Beginn der HA relativ zu GEPLANTEM h-Anfang
+         dau_hw_min = hour(end_hw - beg_hw)*60 + minute(end_hw - beg_hw),
+         lh_ank   = `Ankündigung`,
+         lh_auf   = `L verlangt Aufmerk`,
+         lh_sch   = `L schreibt`,
+         lh_erl   = `L erläutert`,
+         lh_wfr   = `L will Fragen`,
+         lh_bfr   = `L beantwortet`,
+         lh_wno   = `L will Notation`,
+         lh_ano   = `L achtet Notat`,
+         sh_auf = `S aufmerksam`,
+         sh_mel = `S melden`,
+         sh_fra = `S fragen`,
+         sh_not = `S notieren`)
+
+
+
+
+
+
+ 
+
+
+# Abweichungen meine Berechnungen vs. in Tabelle
+  # gs %>%
+  #   mutate(tmpdiff = beg_hw_min - `Min Beginn seit Std-Anfang`) %>%
+  #   filter(tmpdiff != 0)
+```
+
+
+```{r wrangling gym}
+
+gym <- gym %>%
+  mutate(id = as.numeric(`Laufende\nNummer`))
+
+
+# new var
+gym <- gym %>%
+  mutate(beg_hw_min = `Min Beginn`,
+         dau_hw_min = `HA stellen Dauer`,
+         stunde     = case_when(Doppelstundenmodell == 0 ~ 45,
+                                Doppelstundenmodell == 1 ~ 90),
+         Schulart = "Gymnasium",
+         lh_ank   = `Ankündigung`,
+         lh_auf   = `L sorg Aufmerk`,
+         lh_sch   = `L schreibt`,
+         lh_erl   = `Erläuterung gesamt`,
+         lh_wfr   = `L will Fragen`,
+         lh_bfr   = `L beantwortet`,
+         lh_wno   = `L will Notation`,
+         lh_ano   = `L achtet Notat`,
+         sh_auf = `S aufmerksam`,
+         sh_mel = `S melden`,
+         sh_fra = `Fragen gesamt`,
+         sh_not = `S notieren`)
+```
+
+
+```{r plots zeitpunkt}
+
+gs_p <- gs %>%
+  select(beg_hw_min, dau_hw_min, stunde, Schulart, lh_ank, lh_auf, lh_sch, lh_erl, lh_wfr, lh_bfr, lh_wno, lh_ano, sh_auf, sh_mel, sh_fra, sh_not)
+
+gym_p <- gym %>%
+  select(beg_hw_min, dau_hw_min, stunde, Schulart, lh_ank, lh_auf, lh_sch, lh_erl, lh_wfr, lh_bfr, lh_wno, lh_ano, sh_auf, sh_mel, sh_fra, sh_not)
+
+p_data <- rbind(gs_p, gym_p)
+
+# OPTION 1
+ggplot(p_data%>%filter(stunde <= 45), aes(x=beg_hw_min, fill = Schulart, colour = Schulart)) +
+      geom_density(alpha = 0.3, adjust = 1.4) +
+      geom_vline(xintercept = 45, linetype = "dashed", colour = "#696f71", size = 1) +
+      scale_colour_brewer(palette = "Set1") +
+      scale_fill_brewer(palette = "Set1") +
+      scale_x_continuous(expand = c(0, 0), breaks = c(0, 10,20,30,40,45,50,60)) +
+      scale_y_continuous(expand = c(0, 0), labels = c("0", "3", "6", "9", "12"), limits = c(0,0.12)) +
+      xlab("Minuten seit geplantem Stundenbeginn") +
+      ylab("% Häufigkeit") +
+      theme_light() +
+      theme(axis.line = element_line(colour = "#696f71"),
+            panel.grid.major = element_blank(),
+            panel.grid.minor = element_blank(),
+            panel.border = element_blank(),
+            panel.background = element_rect(fill = "#f6f7f7"))
+
+# OPTION 2
+ggplot(p_data%>%filter(stunde <= 45), aes(x="", y = beg_hw_min, fill = Schulart, colour = Schulart)) +
+                geom_flat_violin(position = position_nudge(x = 0, y = 0), adjust = 1.6, trim = FALSE, alpha = .3, colour = NA) +
+                geom_boxplot(aes(x=""), position = position_nudge(x = c(.50, .56), y = 0), outlier.shape = NA, alpha = .5, width = .05, colour = "black") +
+                geom_hline(yintercept = 45, linetype = "dashed", colour = "#696f71", size = 1) +
+                scale_colour_brewer(palette = "Set1")+
+                scale_fill_brewer(palette = "Set1") +
+                scale_y_continuous(expand = c(0, 0), breaks = c(0, 10,20,30,40,45,50,60)) +
+                scale_x_discrete(expand = c(0, 0)) +
+                ylab("Minuten seit geplantem Stundenbeginn") +
+                xlab("% Häufigkeit") +
+                theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7")) +
+                coord_flip()
+      
+
+
+# OPTION 1
+ggplot(p_data%>%filter(stunde > 45), aes(x=beg_hw_min, fill = Schulart, colour = Schulart)) +
+      geom_density(alpha = 0.3, adjust = 1.4) +
+      geom_vline(xintercept = 90, linetype = "dashed", colour = "#696f71", size = 1) +
+      scale_colour_brewer(palette = "Set1")+
+      scale_fill_brewer(palette = "Set1") +
+      scale_x_continuous(expand = c(0, 0), breaks = c(0, 10,20,30,40,50,60,70,80,90)) +
+      scale_y_continuous(expand = c(0, 0), labels = c("0", "1", "2", "3", "4", "5"), limits = c(0,0.05)) +
+      xlab("Minuten seit geplantem Stundenbeginn") +
+      ylab("% Häufigkeit") +
+      theme_light() +
+      theme(axis.line = element_line(colour = "#696f71"),
+            panel.grid.major = element_blank(),
+            panel.grid.minor = element_blank(),
+            panel.border = element_blank(),
+            panel.background = element_rect(fill = "#f6f7f7"))
+
+
+# OPTION 2
+ggplot(p_data%>%filter(stunde > 45), aes(x="", y = beg_hw_min, fill = Schulart, colour = Schulart)) +
+                geom_flat_violin(position = position_nudge(x = 0, y = 0), adjust = 1.6, trim = FALSE, alpha = .3, colour = NA) +
+                geom_boxplot(aes(x=""), position = position_nudge(x = c(.50, .56), y = 0), outlier.shape = NA, alpha = .5, width = .05, colour = "black") +
+                geom_hline(yintercept = 90, linetype = "dashed", colour = "#696f71", size = 1) +
+                scale_colour_brewer(palette = "Set1")+
+                scale_fill_brewer(palette = "Set1") +
+                scale_y_continuous(expand = c(0, 0), breaks = c(0, 10,20,30,40,50,60,70,80,90), limits = c(0,95)) +
+                scale_x_discrete(expand = c(0, 0)) +
+                ylab("Minuten seit geplantem Stundenbeginn") +
+                xlab("% Häufigkeit") +
+                theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7")) +
+                coord_flip()
+```
+
+
+```{r plots zeitbedarf}
+
+# PROBLEME:
+# View(gs%>%filter(dau_hw_min>10 | dau_hw_min < 0))
+
+# insert credit fot rainclouds!
+source("R_rainclouds.R")
+
+
+ggplot(p_data%>%filter(dau_hw_min>=0 & dau_hw_min < 31), aes(x=Schulart, y = dau_hw_min, fill = Schulart)) +
+                geom_flat_violin(position = position_nudge(x = .1, y = 0), adjust = 1.6, trim = FALSE, alpha = .3, colour = NA) +
+                geom_point(position = position_jitter(width = .05), size = 1, alpha = 0.5, aes(color=Schulart)) +
+                geom_boxplot(position = position_nudge(x = -.15, y = 0), outlier.shape = NA, alpha = .5, width = .1, colour = "black") +
+                scale_colour_brewer(palette = "Set1")+
+                scale_y_continuous(expand = c(0, 0), labels = c("0", "5", "10", "15", "20"), limits = c(0,35)) +
+                scale_fill_brewer(palette = "Set1") +
+                ylab("Minuten") +
+                theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7"))
+
+```
+
+
+```{r prozentuale haeufigkeiten}
+# Unklar: Was bedeuten Zahlen jenseits von 0, 1?
+tmp <- p_data %>% select_if(is.numeric)
+for(col in 4:15) {
+    print(c(names(tmp[col]), table(tmp[,col])), quote = F)
+}
+
+# ich berechne einen Vergleich zw. GS und GYM an einer dichotomen Var (lh_ano)
+chisq.test(p_data$Schulart, p_data$lh_ano)
+fisher.test(p_data$Schulart, p_data$lh_ano) #bei kleinen Zahlen
+
+```
