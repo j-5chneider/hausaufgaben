@@ -1,41 +1,75 @@
 ---
 title: "Hausaufgaben"
 description: |
-  A new article created using the Radix format.
+  Kontraste zwischen Grundschule und Gymnasium
 author:
   - name: Jürgen Schneider 
     url: https://uni-tuebingen.de/de/28915
     affiliation: Universität Tübingen
+  - name: Britta Kohler
 date: "`r Sys.Date()`"
-output: radix::radix_article
+output: 
+  radix::radix_article:
+    toc: yes
+    toc_depth: 2
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE)
+```{r setup, echo=T}
+knitr::opts_chunk$set(echo = T, message = F, warning = F)
 library(rio)
 library(tidyverse)
 library(lubridate)
 library(ggstance)
+library(mice)
+library(miceadds)
+library(naniar)
+library(psych)
+library(ggrepel)
+library(BayesFactor)
+library(bindata)
+library(pander)
+library(corrgram)
+library(hrbrthemes)
+library(MASS)
+library(bain)
+
+R.Version()
 ```
 
+# Datenvorbereitung
+
 ```{r import, include=T}
+# import
 gym <- rio::import("data/gym.xls")
 gs <- rio::import("data/gs.xls")
 ```
 
+## Grundschule
+
 ```{r wrangling gs}
 
 gs <- gs %>%
-  filter(`Laufende\nNummer` != "Beispiel") %>%
+  dplyr::filter(`Laufende\nNummer` != "Beispiel") %>%
   mutate(id = as.numeric(`Laufende\nNummer`))
 
 ## Korrektur von Daten auf Basis der Abweichungen
  # Falschberechnungen der `Min Beginn seit Std-Anfang` (id == 189, 248, 329) werden übersprungen
  # da die selbst berechnete variable `beg_hw_min` verwendet wird
  # aufgrund der unterschiedlichen Zeitzone muss zusätzlich noch eine h drauf gerechnet werden
-gs[which(gs$id == 105), "Uhrzeit Beginn HA Vergabe"] <- "1899-12-31 11:48:00"    # Ergibt sich aus der Länge der Vergabe, Ende der Vergabe und h-Anfang
-gs[which(gs$id == 105), "Uhrzeit Ende Vergabe"] <- "1899-12-31 11:51:00"         # Ergibt sich aus der Länge der Vergabe, Ende der Vergabe und h-Anfang
-gs[which(gs$id == 120), "Uhrzeit Beginn HA Vergabe"] <- "1899-12-31 11:58:00"    # Ergibt sich aus der Länge der Vergabe, Ende der Vergabe und h-Anfang
+gs[which(gs$id == 105), "Uhrzeit Beginn HA Vergabe"] <- "1899-12-31 11:48:00"    # Tippfehler, nochmals in FB nachgeschaut
+gs[which(gs$id == 105), "Uhrzeit Ende Vergabe"] <- "1899-12-31 11:51:00"         # Tippfehler, nochmals in FB nachgeschaut
+gs[which(gs$id == 120), "Uhrzeit Beginn HA Vergabe"] <- "1899-12-31 11:58:00"    # Tippfehler, nochmals in FB nachgeschaut
+gs[which(gs$id == 168), "Uhrzeit Beginn HA Vergabe"] <- "1899-12-31 11:43:00"    # Tippfehler, nochmals in FB nachgeschaut
+gs[which(gs$id == 250), "Uhrzeit Ende Vergabe"] <- "1899-12-31 12:33:00"         # Tippfehler, nochmals in FB nachgeschaut
+gs[which(gs$id == 187), "Uhrzeit Beginn der Std laut Plan"] <- "1899-12-31 09:20:00" # Tippfehler, nochmals in FB nachgeschaut
+gs[which(gs$id == 187), "Uhrzeit Ende der Std laut Plan"] <- "1899-12-31 10:50:00" # Tippfehler, nochmals in FB nachgeschaut
+gs[which(gs$id == 187), "Uhrzeit Beginn HA Vergabe"] <- "1899-12-31 10:24:00"    # Tippfehler, nochmals in FB nachgeschaut
+gs[which(gs$id == 187), "Uhrzeit Ende Vergabe"] <- "1899-12-31 10:40:00"         # Tippfehler, nochmals in FB nachgeschaut
+gs[which(gs$id == 307), "Uhrzeit Ende Vergabe"] <- "1899-12-31 10:16:00"         # Tippfehler, nochmals in FB nachgeschaut
+gs[which(gs$id == 315), "Uhrzeit Ende Vergabe"] <- "1899-12-31 11:55:00"         # Tippfehler, nochmals in FB nachgeschaut
+gs[which(gs$id == 220), "Ankündigung"] <- 1 # Tippfehler
+gs[which(gs$id == 198), "L schreibt"] <- 1 # Tippfehler 
+gs[which(gs$id == 330), "L will Notation"] <- NA # Wert "9" gibt es nicht, nicht nachvollziehbar, welcher Wert plausibel ist
 
 
 # new var
@@ -45,11 +79,12 @@ gs <- gs %>%
          beg_act  = hm(format(strptime(`Uhrzeit Realer Beginn der Std`,"%Y-%m-%d %H:%M:%S"),'%H:%M')),
          beg_hw   = hm(format(strptime(`Uhrzeit Beginn HA Vergabe`,"%Y-%m-%d %H:%M:%S"),'%H:%M')),
          end_hw   = hm(format(strptime(`Uhrzeit Ende Vergabe`,"%Y-%m-%d %H:%M:%S"),'%H:%M')),
-         stunde   = hour(end_plan - beg_plan)*60 + minute(end_plan - beg_plan),             # geplante Länge der Unterrichtsstunde
-         beg_hw_min = hour(beg_hw - beg_plan)*60 + minute(beg_hw - beg_plan),               # Beginn der HA relativ zu GEPLANTEM h-Anfang
-         dau_hw_min = hour(end_hw - beg_hw)*60 + minute(end_hw - beg_hw),
+         stunde   = lubridate::hour(end_plan - beg_plan)*60 + lubridate::minute(end_plan - beg_plan),     # geplante Länge der Unterrichtsstunde
+         beg_hw_min = lubridate::hour(beg_hw - beg_plan)*60 + lubridate::minute(beg_hw - beg_plan),       # Beginn der HA relativ zu GEPLANTEM h-Anfang
+         dau_hw_min = lubridate::hour(end_hw - beg_hw)*60 + lubridate::minute(end_hw - beg_hw),
          lh_ank   = `Ankündigung`,
          lh_auf   = `L verlangt Aufmerk`,
+         lh_nen   = `L nennt`,
          lh_sch   = `L schreibt`,
          lh_erl   = `L erläutert`,
          lh_wfr   = `L will Fragen`,
@@ -60,26 +95,26 @@ gs <- gs %>%
          sh_mel = `S melden`,
          sh_fra = `S fragen`,
          sh_not = `S notieren`)
-
-
-
-
-
-
- 
-
-
-# Abweichungen meine Berechnungen vs. in Tabelle
-  # gs %>%
-  #   mutate(tmpdiff = beg_hw_min - `Min Beginn seit Std-Anfang`) %>%
-  #   filter(tmpdiff != 0)
 ```
 
 
-```{r wrangling gym}
+## Gymnasium
 
+```{r wrangling gym}
 gym <- gym %>%
   mutate(id = as.numeric(`Laufende\nNummer`))
+
+gym[which(gym$id == 141 |
+          gym$id == 148 |
+          gym$id == 149 |
+          gym$id == 150 |
+          gym$id == 164 |
+          gym$id == 175 |
+          gym$id == 180 |
+          gym$id == 181 |
+          gym$id == 182 |
+          gym$id == 188 |
+          gym$id == 189), "L schreibt"] <- 1 # Tippfehler, in FB nachgeschaut
 
 
 # new var
@@ -91,54 +126,530 @@ gym <- gym %>%
          Schulart = "Gymnasium",
          lh_ank   = `Ankündigung`,
          lh_auf   = `L sorg Aufmerk`,
+         lh_nen   = `L nennt`,
          lh_sch   = `L schreibt`,
          lh_erl   = `Erläuterung gesamt`,
          lh_wfr   = `L will Fragen`,
          lh_bfr   = `L beantwortet`,
          lh_wno   = `L will Notation`,
          lh_ano   = `L achtet Notat`,
-         sh_auf = `S aufmerksam`,
+         sh_auf = `S aufmerksam`,    
          sh_mel = `S melden`,
          sh_fra = `Fragen gesamt`,
          sh_not = `S notieren`)
 ```
 
+## Erstellung gemeinsamer Datensatz
 
-```{r plots zeitpunkt}
-
+```{r gemeins}
 gs_p <- gs %>%
-  select(beg_hw_min, dau_hw_min, stunde, Schulart, lh_ank, lh_auf, lh_sch, lh_erl, lh_wfr, lh_bfr, lh_wno, lh_ano, sh_auf, sh_mel, sh_fra, sh_not)
+  dplyr::select(beg_hw_min, dau_hw_min, stunde, Schulart, Klassenstufe, lh_ank, lh_auf, lh_nen,
+         lh_sch, lh_erl, lh_wfr, lh_bfr, lh_wno, lh_ano, sh_auf, sh_mel, sh_fra, sh_not)
 
 gym_p <- gym %>%
-  select(beg_hw_min, dau_hw_min, stunde, Schulart, lh_ank, lh_auf, lh_sch, lh_erl, lh_wfr, lh_bfr, lh_wno, lh_ano, sh_auf, sh_mel, sh_fra, sh_not)
+  dplyr::select(beg_hw_min, dau_hw_min, stunde, Schulart, Klassenstufe, lh_ank, lh_auf, lh_nen,
+         lh_sch, lh_erl, lh_wfr, lh_bfr, lh_wno, lh_ano, sh_auf, sh_mel, sh_fra, sh_not)
 
 p_data <- rbind(gs_p, gym_p)
 
-# OPTION 1
-ggplot(p_data%>%filter(stunde <= 45), aes(x=beg_hw_min, fill = Schulart, colour = Schulart)) +
-      geom_density(alpha = 0.3, adjust = 1.4) +
-      geom_vline(xintercept = 45, linetype = "dashed", colour = "#696f71", size = 1) +
-      scale_colour_brewer(palette = "Set1") +
-      scale_fill_brewer(palette = "Set1") +
-      scale_x_continuous(expand = c(0, 0), breaks = c(0, 10,20,30,40,45,50,60)) +
-      scale_y_continuous(expand = c(0, 0), labels = c("0", "3", "6", "9", "12"), limits = c(0,0.12)) +
-      xlab("Minuten seit geplantem Stundenbeginn") +
-      ylab("% Häufigkeit") +
-      theme_light() +
-      theme(axis.line = element_line(colour = "#696f71"),
-            panel.grid.major = element_blank(),
-            panel.grid.minor = element_blank(),
-            panel.border = element_blank(),
-            panel.background = element_rect(fill = "#f6f7f7"))
+# filter away the 10 cross grade classes as they are difficult to analyze 
+# (combine characteristics of two grades in one)
+p_data <- p_data %>%
+  dplyr::filter(Klassenstufe != "1_2" | is.na(Klassenstufe)) %>%
+  mutate(Klassenstufe = as.numeric(Klassenstufe))
+```
 
-# OPTION 2
-ggplot(p_data%>%filter(stunde <= 45), aes(x="", y = beg_hw_min, fill = Schulart, colour = Schulart)) +
-                geom_flat_violin(position = position_nudge(x = 0, y = 0), adjust = 1.6, trim = FALSE, alpha = .3, colour = NA) +
-                geom_boxplot(aes(x=""), position = position_nudge(x = c(.50, .56), y = 0), outlier.shape = NA, alpha = .5, width = .05, colour = "black") +
+
+# Imputation der fehlenden Daten
+```{r prozentuale haeufigkeiten}
+### SKALENNIVEAUS ###
+  # lh_ank: dichotom [0,1]
+  # lh_auf: dichotom [0,1]
+  # lh_nen: dichotom [0,1]
+  # lh_sch: dichotom [0,1]
+  # lh_erl: dichotom [0,1]
+  # lh_wfr: dichotom [0,1]
+  # lh_bfr: metrisch, absolutskaliert, schief
+  # lh_wno: dichotom [0,1]
+  # lh_ano: dichotom [0,1]
+  # sh_auf: ordinalskaliert [1:5]
+  # sh_mel: metrisch, absolutskaliert, schief
+  # sh_fra: metrisch, absolutskaliert, schief
+  # sh_not: metrisch, intervllskaliert, bimodal
+```
+
+```{r imput}
+vis_miss(p_data)
+gg_miss_upset(p_data)
+```
+
+## Choices
+
+__imputation model__
+```{r model}
+p_data$Schulart <- as.factor(p_data$Schulart)
+p_data$Klassenstufe <- as.numeric(p_data$Klassenstufe)
+
+model_tab <- data.frame(variable = c("beg_hw_min", "dau_hw_min", "stunde", "Schulart", "Klassenstufe", "lh_ank", "lh_auf", "lh_nen", "lh_sch", 
+                                     "lh_erl", "lh_wfr", "lh_bfr", "lh_wno", "lh_ano", "sh_auf", "sh_mel", "sh_fra", "sh_not"),
+                        'scale type' = c("metric", "metric", "metric", "nominal", "metric", "binary", "binary", "binary", "binary", 
+                                         "binary", "binary", "metric", "binary", "binary", "metric", "metric", "metric", "metric"),
+                        method = c("pmm", "pmm", "pmm", "polyreg", "pmm", "logreg", "logreg", "logreg", "logreg", 
+                                   "logreg", "logreg", "pmm", "logreg", "logreg", "pmm", "pmm", "pmm", "pmm"))
+
+pander(model_tab)
+
+```
+
+
+```{r def model}
+# Defining methods
+meth <- c("pmm", "pmm", "pmm", "polyreg", "pmm", "logreg", "logreg", "logreg", "logreg", 
+          "logreg", "logreg", "pmm", "logreg", "logreg", "pmm", "pmm", "pmm", "pmm")
+```
+
+__number of imputations__  
+1000  
+
+```{r n imput}
+m <- 1000
+```
+
+__selection of predictors__
+```{r pred}
+# cor(y = p_data[,-4], x = !is.na(p_data[,-4]), use = "pair")
+corrgram(p_data, lower.panel = "panel.pie", upper.panel = "panel.cor")
+```
+
+```{r pred spec}
+# set predictor specifications
+ini <- mice(p_data, 
+            maxit = 0, 
+            m = m,
+            meth = meth,
+            seed = 666
+            )
+
+pred <- ini$predictorMatrix
+pred[,"stunde"] <- 0 # stunde highly correlated with beg_hw_min
+pred[,"lh_bfr"] <- 0 # lh_bfr highly correlated with sh_fra
+```
+
+
+__variables that are function of other variables__  
+None.  
+
+__which variables to impute__  
+All.  
+
+__number of iterations__  
+
+20  
+
+```{r maxit}
+maxit <- 20
+```
+
+
+## imputation
+
+```{r imp, message=F, comment=F, warning=F, cache=F}
+imp <- mice(p_data, 
+            maxit = maxit, 
+            m = m,
+            meth = meth,
+            pred = pred,
+            seed = 666,
+            printFlag = F
+            )
+```
+
+## check imputation
+
+__plausible values__
+```{r plaus}
+## will produce one plot for each imputation (200) on each variable
+## uncomment if interested, otherwise I spare the space
+# lattice::stripplot(imp, pch = 20, cex = 1.2)
+```
+All values seem plausible.
+
+__check convergence__
+```{r conv}
+plot(imp)
+```
+
+# Bayes Factor Design Analysis für Kreuztabellen
+
+Bayes Factor Design Analysis zur Bestimmung des BF Thresholds.  
+
+## Effektstärke
+  
+Aufgrund fehlender Referenzwerte nehmen wir eine Effektstärke von $\varphi=.2$ an. Dieser liegt zwischen einem kleinen ($\varphi=.1$) und mittleren ($\varphi=.3$) Effekt nach Cohen (1988).
+
+```{r bfda crosstab hyp}
+true_hyp <- c("H0 is true", "H1 is true") # two possibilities
+phi <- c(0, .2)    # determine effect sizes for hypotheses
+```
+
+## Anzahl Simulationen
+
+Es werden 1000 Simulationen durchgeführt. Aufgrund der Robustheit der Ergebnisse in diesem Bereich, verzichteten wir auf eine größere Anzahl an Simulationen.
+
+```{r bfda crosstab nsim}
+n_sim <- 1000 # number of simulations
+```
+
+## Ergebnisse Simulation
+
+```{r bfda crosstab, fig.height=12, fig.width=12}
+sim_cor_results <- data.frame()   # set up data frame for results
+
+for(j in true_hyp) {                               # loop over both hypotheses
+  if (j == "H0 is true")
+  bincorr <- matrix(c(1,phi[1],phi[1],1), ncol=2)  # create correlation matrix for H0
+  if (j == "H1 is true")
+  bincorr <- matrix(c(1,phi[2],phi[2],1), ncol=2)  # create correlation matrix for H1
+  
+  for (n in 1:n_sim) {
+    sim_df <- rmvbin(n = 510,
+                     margprob = c(0.5, 0.5),
+                     bincorr = bincorr)
+    
+    sim_imp_m <- matrix(table(sim_df[,1], sim_df[,2]), 2, 2)
+    sim_fit <- contingencyTableBF(sim_imp_m, sampleType="indepMulti",fixedMargin = "cols")
+    sim_cor_results[n+ifelse(j == "H0 is true", 0, n_sim), "BayesFactor"] <- extractBF(sim_fit)$bf
+    sim_cor_results[n+ifelse(j == "H0 is true", 0, n_sim), "trueH"] <- j
+    rm(sim_imp_m, sim_fit)
+  }
+}
+
+# categorize if result is correct, incorrect or inconclusive
+sim_cor_results <- sim_cor_results %>%
+  mutate(BF3 = case_when(
+                    BayesFactor >= 3 & trueH == "H0 is true" ~ "incorrect",
+                    BayesFactor < 3 & BayesFactor > (1/3) & trueH == "H0 is true" ~ "inconclusive",
+                    BayesFactor <= (1/3) & trueH == "H0 is true" ~ "correct",
+                    BayesFactor >= 3 & trueH == "H1 is true" ~ "correct",
+                    BayesFactor < 3 & BayesFactor > (1/3) & trueH == "H1 is true" ~ "inconclusive",
+                    BayesFactor <= (1/3) & trueH == "H1 is true" ~ "incorrect"),
+         BF5 = case_when(
+                    BayesFactor >= 5 & trueH == "H0 is true" ~ "incorrect",
+                    BayesFactor < 5 & BayesFactor > (1/5) & trueH == "H0 is true" ~ "inconclusive",
+                    BayesFactor <= (1/5) & trueH == "H0 is true" ~ "correct",
+                    BayesFactor >= 5 & trueH == "H1 is true" ~ "correct",
+                    BayesFactor < 5 & BayesFactor > (1/5) & trueH == "H1 is true" ~ "inconclusive",
+                    BayesFactor <= (1/5) & trueH == "H1 is true" ~ "incorrect"),
+         BF10 = case_when(
+                    BayesFactor >= 10 & trueH == "H0 is true" ~ "incorrect",
+                    BayesFactor < 10 & BayesFactor > (1/10) & trueH == "H0 is true" ~ "inconclusive",
+                    BayesFactor <= (1/10) & trueH == "H0 is true" ~ "correct",
+                    BayesFactor >= 10 & trueH == "H1 is true" ~ "correct",
+                    BayesFactor < 10 & BayesFactor > (1/10) & trueH == "H1 is true" ~ "inconclusive",
+                    BayesFactor <= (1/10) & trueH == "H1 is true" ~ "incorrect"),
+         )
+
+# pivot into long data frame for plot
+sim_cor_results_l <- pivot_longer(sim_cor_results, 
+                                  cols = 3:5, 
+                                  names_to = "BF Threshold",
+                                  values_to = "decision") 
+# order factor for plot
+sim_cor_results_l$`BF Threshold` <- factor(sim_cor_results_l$`BF Threshold`, levels = c("BF3", "BF5", "BF10"))
+
+
+# hrbrthemes::import_roboto_condensed()
+
+ggplot(sim_cor_results_l, aes(trueH, fill = decision)) +
+    geom_bar(position = "fill") +
+    geom_text(aes(label=round(..count../n_sim*100), y= ..count../n_sim),
+    position =position_stack(vjust = 0.5), stat= "count",
+    color = "white", size = 5) +
+    coord_flip() +
+    facet_wrap(~`BF Threshold`, ncol = 1) +
+    labs(title = "Results of the Bayes Factor Design Analysis",
+         subtitle = "For three different Bayes Factors",
+         caption = paste("In % (rounded), based on", n_sim, "simulations")) +
+    xlab("True Hypothesis") +
+    scale_fill_viridis_d() +
+    theme_ipsum_rc()
+```
+
+Die Ergebnisse zeigen, dass bei einem BF von 3 kaum falsch-positive Ergebnisse zustande kommen (~1%) und die Power jeweils zufriedenstellend bzw. sehr hoch ist. Es ist somit nicht nötig einen höheren BF zu verweneden, um falsch-positive Ergebnisse zu vermeiden. Höhere BFs hätten zudem den Nachteil, dass vermehrt inkonklusive Ergebnisse auftreten. Wir verwenden bei der Auswertung der binären Zusammenhänge (Kreuztabellen) somit einen Threshold von $BF=3$ bzw. $BF=\frac{1}{3}$.
+
+
+# Bayes Factor Design Analysis für t-Tests
+
+Bayes Factor Design Analysis zur Bestimmung des BF Thresholds.  
+
+## Effektstärke
+  
+Aufgrund fehlender Referenzwerte nehmen wir eine Effektstärke von $d=.35$ an. Dieser liegt zwischen einem kleinen ($d=.2$) und mittleren ($d=.5$) Effekt nach Cohen (1988).
+
+```{r bfda ttest hyp}
+true_hyp <- c("H0 is true", "H1 is true") # two possibilities
+true_d <- c(0, .35)    # determine effect sizes for hypotheses
+```
+
+## Anzahl Simulationen
+
+Es werden 1000 Simulationen durchgeführt. Aufgrund der Robustheit der Ergebnisse in diesem Bereich, verzichteten wir auf eine größere Anzahl an Simulationen.
+
+```{r bfda ttest nsim}
+n_sim <- 1000 # number of simulations
+```
+
+## Ergebnisse Simulation
+
+```{r bfda ttest, fig.height=12, fig.width=12}
+sim_ttest_results <- data.frame()   # set up data frame for results
+
+for(j in true_hyp) {                            # loop over both hypotheses
+
+  for (n in 1:n_sim) {                             # loop over all simulations
+      sim_ttest_df <- data.frame(mvrnorm(n = 510,                         # fixed n of 510
+                                     mu = if(j == "H0 is true")
+                                          c(0,true_d[1]) else              # create data set for H0
+                                          if(j == "H1 is true")
+                                          c(0,true_d[2]),             # create data set for H1
+                                     Sigma = matrix(c( 1, .5,         # vcov matrix
+                                                      .5,  1),
+                                                      2, 2)))
+      
+    # pivot longer to insert it into a lm
+    sim_ttest_df_l <- pivot_longer(sim_ttest_df, 1:2, names_to = "group", values_to = "dependentVar")
+    
+    ### LINEAR MODEL ############################################ #
+    # compute the means of each group
+    sim_fit_ttest <- lm(dependentVar ~ group-1, 
+                        data = sim_ttest_df_l)
+    ### BAIN #################################################### #    
+    # generating hypotheses
+    hypotheses <- "groupX1 = groupX2; groupX1 < groupX2"   #H1 and H2 respectively
+    
+    bf_ttest <- bain(sim_fit_ttest, 
+                     hypothesis = hypotheses
+                     )
+    
+    sim_ttest_results[n+ifelse(j == "H0 is true", 0, n_sim),"BayesFactor"] <- bf_ttest$BFmatrix[2,1]  # BF(H2,H1)
+    sim_ttest_results[n+ifelse(j == "H0 is true", 0, n_sim), "trueH"] <- j
+    rm(bf_ttest, sim_fit_ttest, sim_ttest_df, sim_ttest_df_l)
+  }
+}
+
+
+# categorize if result is correct, incorrect or inconclusive
+sim_ttest_results <- sim_ttest_results %>%
+  mutate(BF3 = case_when(
+                    BayesFactor >= 3 & trueH == "H0 is true" ~ "incorrect",
+                    BayesFactor < 3 & BayesFactor > (1/3) & trueH == "H0 is true" ~ "inconclusive",
+                    BayesFactor <= (1/3) & trueH == "H0 is true" ~ "correct",
+                    BayesFactor >= 3 & trueH == "H1 is true" ~ "correct",
+                    BayesFactor < 3 & BayesFactor > (1/3) & trueH == "H1 is true" ~ "inconclusive",
+                    BayesFactor <= (1/3) & trueH == "H1 is true" ~ "incorrect"),
+         BF5 = case_when(
+                    BayesFactor >= 5 & trueH == "H0 is true" ~ "incorrect",
+                    BayesFactor < 5 & BayesFactor > (1/5) & trueH == "H0 is true" ~ "inconclusive",
+                    BayesFactor <= (1/5) & trueH == "H0 is true" ~ "correct",
+                    BayesFactor >= 5 & trueH == "H1 is true" ~ "correct",
+                    BayesFactor < 5 & BayesFactor > (1/5) & trueH == "H1 is true" ~ "inconclusive",
+                    BayesFactor <= (1/5) & trueH == "H1 is true" ~ "incorrect"),
+         BF10 = case_when(
+                    BayesFactor >= 10 & trueH == "H0 is true" ~ "incorrect",
+                    BayesFactor < 10 & BayesFactor > (1/10) & trueH == "H0 is true" ~ "inconclusive",
+                    BayesFactor <= (1/10) & trueH == "H0 is true" ~ "correct",
+                    BayesFactor >= 10 & trueH == "H1 is true" ~ "correct",
+                    BayesFactor < 10 & BayesFactor > (1/10) & trueH == "H1 is true" ~ "inconclusive",
+                    BayesFactor <= (1/10) & trueH == "H1 is true" ~ "incorrect"),
+         )
+
+# pivot into long data frame for plot
+sim_ttest_results_l <- pivot_longer(sim_ttest_results, 
+                                    cols = 3:5, 
+                                    names_to = "BF Threshold",
+                                    values_to = "decision") 
+# order factor for plot
+sim_ttest_results_l$`BF Threshold` <- factor(sim_ttest_results_l$`BF Threshold`, levels = c("BF3", "BF5", "BF10"))
+
+
+# hrbrthemes::import_roboto_condensed()
+
+ggplot(sim_ttest_results_l, aes(trueH, fill = decision)) +
+    geom_bar(position = "fill") +
+    geom_text(aes(label=round(..count../n_sim*100), y= ..count../n_sim),
+    position =position_stack(vjust = 0.5), stat= "count",
+    color = "white", size = 5) +
+    coord_flip() +
+    facet_wrap(~`BF Threshold`, ncol = 1) +
+    labs(title = "Results of the Bayes Factor Design Analysis",
+         subtitle = "For three different Bayes Factors",
+         caption = paste("In % (rounded), based on", n_sim, "simulations")) +
+    xlab("True Hypothesis") +
+    scale_fill_viridis_d() +
+    theme_ipsum_rc()
+```
+
+Hier zeigen sich bei einem $N=510$ und einem angenommenen Cohen's $d=.35$ ebenfalls (nahezu) keine falsch-positiven Ergebnisse. Somit wird auch hier auf ein Threshold von $BF=3$ bzw. $BF=\frac{1}{3}$ verwendet.
+
+
+# Zeitpunkt der HA-Vergabe
+
+__Deskriptive Daten__
+
+```{r deskriptiv zeit}
+pander::panderOptions('digits', 3)
+## 45 Minuten Stunden ################ #
+# alle Schulstunden mit Länge 45min herausfiltern
+schulart45 <- p_data %>% 
+  dplyr::filter(stunde == 45)
+
+# Deskriptiven Werte für diese Stunden
+descriptives45 <-  p_data %>%
+    dplyr::filter(stunde == 45) %>%
+    dplyr::select(beg_hw_min, dau_hw_min) %>%
+    psych::describeBy(group = schulart45$Schulart)
+
+pander::pander(descriptives45)
+
+# Modus
+dens_45gs <- schulart45 %>%      # filter only measured cases
+  dplyr::filter(!is.na(beg_hw_min) & Schulart == "Grundschule") #filter for Grundschule
+dens_45gs <- density(dens_45gs$beg_hw_min)   # get density curve
+
+dens_45gy <- schulart45 %>%      # filter only measured cases
+  dplyr::filter(!is.na(beg_hw_min) & Schulart == "Gymnasium") #filter for Gymnasium 
+dens_45gy <- density(dens_45gy$beg_hw_min)   # get density curve
+paste("Modus der Hausaufgabenvergabe in 45min Stunden Grundschule =", round(dens_45gs$x[which.max(dens_45gs$y)], 1))
+paste("Modus der Hausaufgabenvergabe in 45min Stunden Gymnasium =", round(dens_45gy$x[which.max(dens_45gy$y)], 1))
+
+
+
+## 90 Minuten Stunden ################ #
+# alle Schulstunden mit Länge 45min herausfiltern
+schulart90 <- p_data %>% 
+  dplyr::filter(stunde == 90)
+
+# Deskriptiven Werte für diese Stunden
+descriptives90 <-  p_data %>%
+    dplyr::filter(stunde == 90) %>%
+    dplyr::select(beg_hw_min, dau_hw_min) %>%
+    psych::describeBy(group = schulart90$Schulart)
+
+pander::pander(descriptives90)
+
+# Modus
+dens_90gs <- schulart90 %>%      # filter only measured cases
+  dplyr::filter(!is.na(beg_hw_min) & Schulart == "Grundschule") #filter for Grundschule
+dens_90gs <- density(dens_90gs$beg_hw_min)   # get density curve
+
+dens_90gy <- schulart90 %>%      # filter only measured cases
+  dplyr::filter(!is.na(beg_hw_min) & Schulart == "Gymnasium") #filter for Gymnasium 
+dens_90gy <- density(dens_90gy$beg_hw_min)   # get density curve
+paste("Modus der Hausaufgabenvergabe in 90min Stunden Grundschule =", round(dens_90gs$x[which.max(dens_90gs$y)], 1))
+paste("Modus der Hausaufgabenvergabe in 90min Stunden Gymnasium =", round(dens_90gy$x[which.max(dens_90gy$y)], 1))
+
+```
+
+## 45min Stunden  
+
+
+```{r plots zeitpunkt 45, cache=F}
+#### IMPUTATION #### #
+# separate Imputation für 45min
+p_data_45 <- p_data %>%
+    dplyr::filter(stunde==45)
+
+imp45 <- mice(p_data_45, 
+              maxit = maxit, 
+              m = m,
+              meth = meth,
+              pred = pred,
+              seed = 666,
+              printFlag = F
+              )
+
+#### Compute BFs within informed hypotheses framework (bain) ##################################### #
+
+### for bain: compute vcov by hand ###
+# create data frame to collect var and cov for each imputation
+vcov_df <- data.frame(Grundschule = as.numeric(),
+                      Gymnasium = as.numeric()
+                      )
+
+mean_df <- data.frame(Grundschule = as.numeric(),
+                      Gymnasium = as.numeric()
+                      )
+
+# sample size per group
+samp_gr <- table(mice::complete(imp45)$Schulart)
+
+## loop over all m imputations
+for(i in 1:m) {
+  # fit model
+  fit_lm <- lm(beg_hw_min ~ Schulart-1, data = mice::complete(imp45, i))
+  
+  var_lm <- summary(fit_lm)$sigma**2 # get variance of the means (VOM)
+  vcov_df[i, "Grundschule"] <- var_lm/samp_gr["Grundschule"] # compute VOM per group
+  vcov_df[i, "Gymnasium"] <- var_lm/samp_gr["Gymnasium"] # compute VOM per group
+  
+  # collect estimates of the means
+  mean_df[i, "Grundschule"] <- coef(fit_lm)["SchulartGrundschule"]
+  mean_df[i, "Gymnasium"] <- coef(fit_lm)["SchulartGymnasium"]
+  
+  rm(fit_lm, var_lm) # clean up, because we like it tidy in here
+}
+
+
+## make var matrices 
+# compute the mean over var
+vcov_df <- vcov_df %>%
+        summarize_all(mean)
+
+# create matrices
+mat1 <- matrix(vcov_df$Grundschule, 1, 1)
+mat2 <- matrix(vcov_df$Gymnasium, 1, 1)
+
+variances <- list(mat1, mat2)
+
+## compute mean of estimates
+bf_data <- mean_df %>%
+        summarize_all(mean)
+bf_data <- as.numeric(bf_data)
+names(bf_data) <- c("Grund", "Gym")
+
+## BAIN ##### #
+# generating hypotheses
+hypotheses <- "Gym = Grund; Gym < Grund; Gym > Grund"
+
+bf_45 <- bain(bf_data, 
+              hypothesis = hypotheses,
+              n = samp_gr,           # size of the groups
+              Sigma = variances,     # matrices of residual variances of groups
+              group_parameters = 1,  # there is 1 group specific parameter (the mean in each group)
+              joint_parameters = 0   # there are no parameters that apply to each of the groups (e.g. the regression coefficient of a covariate)
+              )
+
+print(bf_45)
+print(bf_45$BFmatrix)
+
+
+
+###### DESCRIPTIVE PLOT ############################################### #
+
+## Awesome Rainvloud plots, check out source:
+# Allen M, Poggiali D, Whitaker K et al. Raincloud plots: a multi-platform tool for 
+#           robust data visualization [version 1; peer review: 2 approved]. 
+#           Wellcome Open Res 2019, 4:63. DOI: 10.12688/wellcomeopenres.15191.1
+source("R_rainclouds.R")
+
+ggplot(p_data%>%dplyr::filter(stunde == 45), aes(x="", y = beg_hw_min, fill = Schulart, colour = Schulart)) +
+                geom_flat_violin(position = position_nudge(x = 0, y = 0), adjust = 1.6, trim = FALSE, alpha = .3) +
+                geom_boxplot(aes(x=""), position = position_nudge(x = c(.49, .54), y = 0), 
+                             outlier.shape = NA, alpha = .5, width = .04, colour = "black") +
                 geom_hline(yintercept = 45, linetype = "dashed", colour = "#696f71", size = 1) +
                 scale_colour_brewer(palette = "Set1")+
                 scale_fill_brewer(palette = "Set1") +
-                scale_y_continuous(expand = c(0, 0), breaks = c(0, 10,20,30,40,45,50,60)) +
+                scale_y_continuous(expand = c(0, 0), breaks = c(0, 10,20,30,40,45,50,60), limits = c(0, 65)) +
                 scale_x_discrete(expand = c(0, 0)) +
                 ylab("Minuten seit geplantem Stundenbeginn") +
                 xlab("% Häufigkeit") +
@@ -151,33 +662,106 @@ ggplot(p_data%>%filter(stunde <= 45), aes(x="", y = beg_hw_min, fill = Schulart,
                 coord_flip()
       
 
+```
 
-# OPTION 1
-ggplot(p_data%>%filter(stunde > 45), aes(x=beg_hw_min, fill = Schulart, colour = Schulart)) +
-      geom_density(alpha = 0.3, adjust = 1.4) +
-      geom_vline(xintercept = 90, linetype = "dashed", colour = "#696f71", size = 1) +
-      scale_colour_brewer(palette = "Set1")+
-      scale_fill_brewer(palette = "Set1") +
-      scale_x_continuous(expand = c(0, 0), breaks = c(0, 10,20,30,40,50,60,70,80,90)) +
-      scale_y_continuous(expand = c(0, 0), labels = c("0", "1", "2", "3", "4", "5"), limits = c(0,0.05)) +
-      xlab("Minuten seit geplantem Stundenbeginn") +
-      ylab("% Häufigkeit") +
-      theme_light() +
-      theme(axis.line = element_line(colour = "#696f71"),
-            panel.grid.major = element_blank(),
-            panel.grid.minor = element_blank(),
-            panel.border = element_blank(),
-            panel.background = element_rect(fill = "#f6f7f7"))
+## 90min Stunden  
+
+Basierend auf untersuchten (nicht-fehlenden) Daten.  
+
+```{r plots zeitpunkt 90, cache=F}
+#### IMPUTATION #### #
+# separate Imputation für 90min
+p_data_90 <- p_data %>%
+    dplyr::filter(stunde==90)
+
+imp90 <- mice(p_data_90, 
+              maxit = maxit, 
+              m = m,
+              meth = meth,
+              pred = pred,
+              seed = 666,
+              printFlag = F
+              )
+
+#### Compute BFs within informed hypotheses framework (bain) ##################################### #
+
+### for bain: compute vcov by hand ###
+# create data frame to collect var and cov for each imputation
+vcov_df <- data.frame(Grundschule = as.numeric(),
+                      Gymnasium = as.numeric()
+                      )
+
+mean_df <- data.frame(Grundschule = as.numeric(),
+                      Gymnasium = as.numeric()
+                      )
+
+# sample size per group
+samp_gr <- table(mice::complete(imp90)$Schulart)
 
 
-# OPTION 2
-ggplot(p_data%>%filter(stunde > 45), aes(x="", y = beg_hw_min, fill = Schulart, colour = Schulart)) +
-                geom_flat_violin(position = position_nudge(x = 0, y = 0), adjust = 1.6, trim = FALSE, alpha = .3, colour = NA) +
-                geom_boxplot(aes(x=""), position = position_nudge(x = c(.50, .56), y = 0), outlier.shape = NA, alpha = .5, width = .05, colour = "black") +
+## loop over all m imputations
+for(i in 1:m) {
+  fit_lm <- lm(beg_hw_min ~ Schulart-1, data = mice::complete(imp90, i))
+  
+  var_lm <- summary(fit_lm)$sigma**2 # get variance of the means (VOM)
+  vcov_df[i, "Grundschule"] <- var_lm/samp_gr["Grundschule"] # compute VOM per group
+  vcov_df[i, "Gymnasium"] <- var_lm/samp_gr["Gymnasium"] # compute VOM per group
+  
+  # collect estimates of the means
+  mean_df[i, "Grundschule"] <- coef(fit_lm)["SchulartGrundschule"]
+  mean_df[i, "Gymnasium"] <- coef(fit_lm)["SchulartGymnasium"]
+  
+  rm(fit_lm, var_lm) # clean up, because we like it tidy in here
+}
+
+## make var matrices 
+# compute the mean over var
+vcov_df <- vcov_df %>%
+        summarize_all(mean)
+
+# create matrices
+mat1 <- matrix(vcov_df$Grundschule, 1, 1)
+mat2 <- matrix(vcov_df$Gymnasium, 1, 1)
+
+variances <- list(mat1, mat2)
+
+## compute mean of estimates
+bf_data <- mean_df %>%
+        summarize_all(mean)
+bf_data <- as.numeric(bf_data)
+names(bf_data) <- c("Grund", "Gym")
+
+
+## BAIN ##### #
+# generating hypotheses
+hypotheses <- "Gym = Grund; Gym < Grund; Gym > Grund"
+
+bf_90 <- bain(bf_data, 
+              hypothesis = hypotheses,
+              n = samp_gr,           # size of the groups
+              Sigma = variances,     # matrices of residual variances of groups
+              group_parameters = 1,  # there is 1 group specific parameter (the mean in each group)
+              joint_parameters = 0   # there are no parameters that apply to each of the groups (e.g. the regression coefficient of a covariate)
+              )
+
+print(bf_90)
+print(bf_90$BFmatrix)
+
+
+###### DESCRIPTIVE PLOT ############################################### #
+
+ggplot(p_data%>%dplyr::filter(stunde == 90), 
+       aes(x="", y = beg_hw_min, fill = Schulart, colour = Schulart)) +
+                geom_flat_violin(position = position_nudge(x = 0, y = 0), 
+                                 adjust = 1.6, trim = FALSE, alpha = .3) +
+                geom_boxplot(aes(x=""), position = position_nudge(x = c(.50, .56), y = 0), 
+                             outlier.shape = NA, alpha = .5, width = .05, colour = "black") +
                 geom_hline(yintercept = 90, linetype = "dashed", colour = "#696f71", size = 1) +
                 scale_colour_brewer(palette = "Set1")+
                 scale_fill_brewer(palette = "Set1") +
-                scale_y_continuous(expand = c(0, 0), breaks = c(0, 10,20,30,40,50,60,70,80,90), limits = c(0,95)) +
+                scale_y_continuous(expand = c(0, 0), 
+                                   breaks = c(0, 10,20,30,40,50,60,70,80,90), 
+                                   limits = c(0,95)) +
                 scale_x_discrete(expand = c(0, 0)) +
                 ylab("Minuten seit geplantem Stundenbeginn") +
                 xlab("% Häufigkeit") +
@@ -191,21 +775,178 @@ ggplot(p_data%>%filter(stunde > 45), aes(x="", y = beg_hw_min, fill = Schulart, 
 ```
 
 
-```{r plots zeitbedarf}
+# Zeitbedarf HA  
 
-# PROBLEME:
-# View(gs%>%filter(dau_hw_min>10 | dau_hw_min < 0))
+## 45min Stunden
 
-# insert credit fot rainclouds!
-source("R_rainclouds.R")
+```{r plots zeitbedarf 45}
+
+#### Compute BFs within informed hypotheses framework (bain) ##################################### #
+
+### for bain: compute vcov by hand ###
+# create data frame to collect var and cov for each imputation
+vcov_df <- data.frame(Grundschule = as.numeric(),
+                      Gymnasium = as.numeric()
+                      )
+
+mean_df <- data.frame(Grundschule = as.numeric(),
+                      Gymnasium = as.numeric()
+                      )
+
+# sample size per group
+samp_gr <- table(mice::complete(imp45)$Schulart)
 
 
-ggplot(p_data%>%filter(dau_hw_min>=0 & dau_hw_min < 31), aes(x=Schulart, y = dau_hw_min, fill = Schulart)) +
-                geom_flat_violin(position = position_nudge(x = .1, y = 0), adjust = 1.6, trim = FALSE, alpha = .3, colour = NA) +
+## loop over all m imputations
+for(i in 1:m) {
+  fit_lm <- lm(dau_hw_min ~ Schulart-1, data = mice::complete(imp45, i))
+  
+  var_lm <- summary(fit_lm)$sigma**2 # get variance of the means (VOM)
+  vcov_df[i, "Grundschule"] <- var_lm/samp_gr["Grundschule"] # compute VOM per group
+  vcov_df[i, "Gymnasium"] <- var_lm/samp_gr["Gymnasium"] # compute VOM per group
+  
+  # collect estimates of the means
+  mean_df[i, "Grundschule"] <- coef(fit_lm)["SchulartGrundschule"]
+  mean_df[i, "Gymnasium"] <- coef(fit_lm)["SchulartGymnasium"]
+  
+  rm(fit_lm, var_lm) # clean up, because we like it tidy in here
+}
+
+## make var matrices 
+# compute the mean over var
+vcov_df <- vcov_df %>%
+        summarize_all(mean)
+
+# create matrices
+mat1 <- matrix(vcov_df$Grundschule, 1, 1)
+mat2 <- matrix(vcov_df$Gymnasium, 1, 1)
+
+variances <- list(mat1, mat2)
+
+## compute mean of estimates
+bf_data <- mean_df %>%
+        summarize_all(mean)
+bf_data <- as.numeric(bf_data)
+names(bf_data) <- c("Grund", "Gym")
+
+
+## BAIN ##### #
+# generating hypotheses
+hypotheses <- "Gym = Grund; Gym < Grund; Gym > Grund"
+
+
+bf_45 <- bain(bf_data, 
+              hypothesis = hypotheses,
+              n = samp_gr,           # size of the groups
+              Sigma = variances,     # matrices of residual variances of groups
+              group_parameters = 1,  # there is 1 group specific parameter (the mean in each group)
+              joint_parameters = 0   # there are no parameters that apply to each of the groups (e.g. the regression coefficient of a covariate)
+              )
+
+print(bf_45)
+print(bf_45$BFmatrix)
+
+
+
+###### DESCRIPTIVE PLOT ############################################### #
+
+ggplot(p_data%>%dplyr::filter(stunde == 45), aes(x=Schulart, y = dau_hw_min, fill = Schulart)) +
+                geom_flat_violin(position = position_nudge(x = .1, y = 0), 
+                                 adjust = 1.6, trim = FALSE, alpha = .3, colour = NA) +
                 geom_point(position = position_jitter(width = .05), size = 1, alpha = 0.5, aes(color=Schulart)) +
-                geom_boxplot(position = position_nudge(x = -.15, y = 0), outlier.shape = NA, alpha = .5, width = .1, colour = "black") +
+                geom_boxplot(position = position_nudge(x = -.15, y = 0), 
+                             outlier.shape = NA, alpha = .5, width = .1, colour = "black") +
                 scale_colour_brewer(palette = "Set1")+
-                scale_y_continuous(expand = c(0, 0), labels = c("0", "5", "10", "15", "20"), limits = c(0,35)) +
+                scale_y_continuous(expand = c(0, 0)) +
+                scale_fill_brewer(palette = "Set1") +
+                ylab("Minuten") +
+                theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7"))
+
+```
+
+## 90min Stunden
+
+```{r plots zeitbedarf 90}
+
+#### Compute BFs within informed hypotheses framework (bain) ##################################### #
+
+### for bain: compute vcov by hand ###
+# create data frame to collect var and cov for each imputation
+vcov_df <- data.frame(Grundschule = as.numeric(),
+                      Gymnasium = as.numeric()
+                      )
+
+mean_df <- data.frame(Grundschule = as.numeric(),
+                      Gymnasium = as.numeric()
+                      )
+
+# sample size per group
+samp_gr <- table(mice::complete(imp90)$Schulart)
+
+
+## loop over all m imputations
+for(i in 1:m) {
+  fit_lm <- lm(dau_hw_min ~ Schulart-1, data = mice::complete(imp90, i))
+  
+  var_lm <- summary(fit_lm)$sigma**2 # get variance of the means (VOM)
+  vcov_df[i, "Grundschule"] <- var_lm/samp_gr["Grundschule"] # compute VOM per group
+  vcov_df[i, "Gymnasium"] <- var_lm/samp_gr["Gymnasium"] # compute VOM per group
+  
+  # collect estimates of the means
+  mean_df[i, "Grundschule"] <- coef(fit_lm)["SchulartGrundschule"]
+  mean_df[i, "Gymnasium"] <- coef(fit_lm)["SchulartGymnasium"]
+  
+  rm(fit_lm, var_lm) # clean up, because we like it tidy in here
+}
+
+## make var matrices 
+# compute the mean over var
+vcov_df <- vcov_df %>%
+        summarize_all(mean)
+
+# create matrices
+mat1 <- matrix(vcov_df$Grundschule, 1, 1)
+mat2 <- matrix(vcov_df$Gymnasium, 1, 1)
+
+variances <- list(mat1, mat2)
+
+## compute mean of estimates
+bf_data <- mean_df %>%
+        summarize_all(mean)
+bf_data <- as.numeric(bf_data)
+names(bf_data) <- c("Grund", "Gym")
+
+## BAIN ##### #
+# generating hypotheses
+hypotheses <- "Gym = Grund; Gym < Grund; Gym > Grund"
+
+bf_90 <- bain(bf_data, 
+              hypothesis = hypotheses,
+              n = samp_gr,           # size of the groups
+              Sigma = variances,     # matrices of residual variances of groups
+              group_parameters = 1,  # there is 1 group specific parameter (the mean in each group)
+              joint_parameters = 0   # there are no parameters that apply to each of the groups (e.g. the regression coefficient of a covariate)
+              )
+
+print(bf_90)
+print(bf_90$BFmatrix)
+
+
+###### DESCRIPTIVE PLOT ############################################### #
+
+ggplot(p_data%>%dplyr::filter(stunde == 90), aes(x=Schulart, y = dau_hw_min, fill = Schulart)) +
+                geom_flat_violin(position = position_nudge(x = .1, y = 0), 
+                                 adjust = 1.6, trim = FALSE, alpha = .3, colour = NA) +
+                geom_point(position = position_jitter(width = .05), size = 1, alpha = 0.5, aes(color=Schulart)) +
+                geom_boxplot(position = position_nudge(x = -.15, y = 0), 
+                             outlier.shape = NA, alpha = .5, width = .1, colour = "black") +
+                scale_colour_brewer(palette = "Set1")+
+                scale_y_continuous(expand = c(0, 0)) +
                 scale_fill_brewer(palette = "Set1") +
                 ylab("Minuten") +
                 theme_light() +
@@ -218,15 +959,2046 @@ ggplot(p_data%>%filter(dau_hw_min>=0 & dau_hw_min < 31), aes(x=Schulart, y = dau
 ```
 
 
-```{r prozentuale haeufigkeiten}
-# Unklar: Was bedeuten Zahlen jenseits von 0, 1?
-tmp <- p_data %>% select_if(is.numeric)
-for(col in 4:15) {
-    print(c(names(tmp[col]), table(tmp[,col])), quote = F)
+# Häufigkeiten der Lehrpersonen-/SuS-Handlungen
+
+__Deskriptive Daten__
+
+```{r deskriptiv Angebot}
+descriptives <-  p_data %>%
+    dplyr::select(lh_ank, lh_auf, lh_nen, lh_sch,
+                  lh_erl, lh_wfr, lh_wno, lh_ano,
+                  lh_bfr, sh_auf, sh_mel, sh_fra, sh_not) %>%
+    psych::describeBy(group = p_data$Schulart)
+
+panderOptions('digits', 3)
+pander::pander(descriptives)
+
+```
+
+
+## L kündigt HA an
+
+### Prädiktor Schulart
+
+```{r ank BF}
+# Compute density of BFs
+cor_results <- data.frame()
+
+for (i in 1:m) {
+  imp_m <- matrix(table(mice::complete(imp, i)$lh_ank,     # create contingency table
+                        mice::complete(imp, i)$Schulart), 2, 2)
+  fit <- contingencyTableBF(imp_m, sampleType="indepMulti",
+                            fixedMargin = "cols")          # GS and GY as fixed
+  cor_results[i,"lh_ank-Schulart"] <- extractBF(fit)$bf    # save BF in data frame
+  
+  chains <- posterior(fit, iterations = 1000)  # get posterior probabilities
+  showMerkm_givenGS <- chains[,"pi[2,1]"] / chains[,"pi[*,1]"]  # compute ratio for GS
+  showMerkm_givenGY <- chains[,"pi[2,2]"] / chains[,"pi[*,2]"]  # compute ratio for GY
+  cor_results[i,"prob_GSminusGY"] <- mean(mcmc(showMerkm_givenGS - showMerkm_givenGY)) # Markov Chain
+                                                                         # Monte Carlo of differences
+  
+  rm(imp_m, fit, chains)
 }
 
-# ich berechne einen Vergleich zw. GS und GYM an einer dichotomen Var (lh_ano)
-chisq.test(p_data$Schulart, p_data$lh_ano)
-fisher.test(p_data$Schulart, p_data$lh_ano) #bei kleinen Zahlen
+# show summary of BFs
+summary(cor_results[,"lh_ank-Schulart"])  
 
+# plot BFs distribution
+ggplot(cor_results, aes(x = `lh_ank-Schulart`)) +
+                geom_density(alpha = .3, fill = "#b4a069", color = NA) +
+                geom_jitter(aes(x = `lh_ank-Schulart`, y=""), 
+                            height = 1, width = 0, alpha = .3, 
+                            size = 2.5, fill = "#b4a069", color = "#b4a069") +
+                geom_vline(xintercept = (1/3), color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                geom_vline(xintercept = 3, color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                scale_x_continuous(expand = c(0, 0), trans = 'log10') +
+                scale_y_discrete(expand = c(0, 0)) +
+                ylab("% Häufigkeit") +
+                xlab("BF [log10]") +
+                theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7"))
+
+# plot difference of 
+summary(cor_results[,"prob_GSminusGY"])
+```
+
+### Prädiktor Klassenstufe
+
+```{r ank Klassenstufe}
+# Compute density of BFs
+kl_results <- data.frame()
+
+for (i in 1:m) {
+  fit <- correlationBF(y = mice::complete(imp, i)$lh_ank,    # correlation
+                       x = mice::complete(imp, i)$Klassenstufe)
+  kl_results[i,"lh_ank-Klassenstufe"] <- extractBF(fit)$bf    # save BF in data frame
+  
+  rm(fit)
+}
+
+# show summary of BFs
+summary(kl_results[,"lh_ank-Klassenstufe"])  
+
+
+# plot BFs distribution
+ggplot(kl_results, aes(x = `lh_ank-Klassenstufe`)) +
+                geom_density(alpha = .3, fill = "#b4a069", color = NA) +
+                geom_jitter(aes(x = `lh_ank-Klassenstufe`, y=""), 
+                            height = 1, width = 0, alpha = .3, 
+                            size = 2.5, fill = "#b4a069", color = "#b4a069") +
+                geom_vline(xintercept = (1/3), color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                geom_vline(xintercept = 3, color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                scale_x_continuous(expand = c(0, 0), trans = 'log10') +
+                scale_y_discrete(expand = c(0, 0)) +
+                ylab("% Häufigkeit") +
+                xlab("BF [log10]") +
+                theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7"))
+```
+
+### Plot der deskriptiven Daten
+
+```{r ank plot}
+###### DESCRIPTIVE PLOT ############################################### #
+# plot (non-missing) values as descriptive
+lh_ank_p <- p_data %>%
+  dplyr::filter(!is.na(lh_ank) & !is.na(Klassenstufe)) %>%
+  group_by(Klassenstufe) %>%
+  mutate(length = length(lh_ank)) %>%
+  summarize(lh_ank = mean(lh_ank, na.rm=T),
+            length_n = mean(length)) %>%
+  ungroup() %>%
+  mutate(Klassenstufe = factor(Klassenstufe, levels = c("1", "1_2", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12")),
+         Schulart = as.factor(case_when(
+                      Klassenstufe == "1" ~ "Grundschule",
+                      Klassenstufe == "1_2" ~ "Grundschule",
+                      Klassenstufe == "2" ~ "Grundschule",
+                      Klassenstufe == "3" ~ "Grundschule",
+                      Klassenstufe == "4" ~ "Grundschule",
+                      TRUE ~ "Gymnasium"
+         )))
+
+ggplot(lh_ank_p, aes(x = Klassenstufe, y = lh_ank, color = Schulart)) + 
+  geom_line(aes(group = NA), color = "grey", size = 1) +
+  geom_point(aes(size = length_n)) +
+  geom_text(aes(label = paste(round(lh_ank*100,0), "%"), vjust = 3)) +
+  scale_y_continuous(limits = c(0,1), expand = c(0,0)) +
+  geom_rect(aes(xmin = 0, xmax = 4.5, ymin = -Inf, ymax = Inf), fill = "pink", alpha = .01, color = NA) +
+  geom_rect(aes(xmin = 4.5, xmax = 14, ymin = -Inf, ymax = Inf), fill = "#BFEFFF", alpha = .01, color = NA) +
+  xlab("Klassenstufe") +
+  ylab("% Häufigkeit") +
+  labs(size = "Anzahl\neingegangener\nStunden") +
+  theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7")) 
+  
+  
+```
+
+
+## L fordert Aufmerksamkeit
+
+### Prädiktor Schulart
+
+```{r haeufigkeiten auf}
+# Compute density of BFs
+for (i in 1:m) {
+  imp_m <- matrix(table(mice::complete(imp, i)$lh_auf, mice::complete(imp, i)$Schulart), 2, 2)
+  fit <- contingencyTableBF(imp_m, sampleType="indepMulti",fixedMargin = "cols")
+  cor_results[i,"lh_auf-Schulart"] <- extractBF(fit)$bf
+    
+  chains <- posterior(fit, iterations = 1000)  # get posterior probabilities
+  showMerkm_givenGS <- chains[,"pi[2,1]"] / chains[,"pi[*,1]"]  # compute ratio for GS
+  showMerkm_givenGY <- chains[,"pi[2,2]"] / chains[,"pi[*,2]"]  # compute ratio for GY
+  cor_results[i,"prob_GSminusGY"] <- mean(mcmc(showMerkm_givenGS - showMerkm_givenGY)) # Markov Chain Monte Carlo of differences
+  
+  rm(imp_m, fit, chains)
+}
+
+summary(cor_results[,"lh_auf-Schulart"])
+
+ggplot(cor_results, aes(x = `lh_auf-Schulart`)) +
+                geom_density(alpha = .3, fill = "#b4a069", color = NA) +
+                geom_jitter(aes(x = `lh_auf-Schulart`, y=""), height = 1, width = 0, alpha = .3, size = 2.5, fill = "#b4a069", color = "#b4a069") +
+                geom_vline(xintercept = (1/3), color = "red", alpha = .4, size = 2, linetype = "dashed") +
+                geom_vline(xintercept = 3, color = "red", alpha = .4, size = 2, linetype = "dashed") +
+                scale_x_continuous(expand = c(0, 0), trans = 'log10') +
+                scale_y_discrete(expand = c(0, 0)) +
+                ylab("% Häufigkeit") +
+                xlab("BF [log10]") +
+                theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7"))
+
+# plot difference of 
+summary(cor_results[,"prob_GSminusGY"])
+```
+
+### Prädiktor Klassenstufe
+
+```{r auf Klassenstufe}
+# Compute density of BFs
+kl_results <- data.frame()
+
+for (i in 1:m) {
+  fit <- correlationBF(y = mice::complete(imp, i)$lh_auf,    # correlation
+                       x = mice::complete(imp, i)$Klassenstufe)
+  kl_results[i,"lh_auf-Klassenstufe"] <- extractBF(fit)$bf    # save BF in data frame
+  
+  rm(fit)
+}
+
+# show summary of BFs
+summary(kl_results[,"lh_auf-Klassenstufe"])  
+
+# plot BFs distribution
+ggplot(kl_results, aes(x = `lh_auf-Klassenstufe`)) +
+                geom_density(alpha = .3, fill = "#b4a069", color = NA) +
+                geom_jitter(aes(x = `lh_auf-Klassenstufe`, y=""), 
+                            height = 1, width = 0, alpha = .3, 
+                            size = 2.5, fill = "#b4a069", color = "#b4a069") +
+                geom_vline(xintercept = (1/3), color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                geom_vline(xintercept = 3, color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                scale_x_continuous(expand = c(0, 0), trans = 'log10') +
+                scale_y_discrete(expand = c(0, 0)) +
+                ylab("% Häufigkeit") +
+                xlab("BF [log10]") +
+                theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7"))
+```
+
+### Plot der deskriptiven Daten
+
+```{r auf plot}
+
+
+###### DESCRIPTIVE PLOT ############################################### #
+
+lh_auf_p <- p_data %>%
+  dplyr::filter(!is.na(lh_auf) & !is.na(Klassenstufe)) %>%
+  group_by(Klassenstufe) %>%
+  mutate(length = length(lh_auf)) %>%
+  summarize(lh_auf = mean(lh_auf, na.rm=T),
+            length_n = mean(length)) %>%
+  ungroup() %>%
+  mutate(Klassenstufe = factor(Klassenstufe, levels = c("1", "1_2", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12")),
+         Schulart = as.factor(case_when(
+                      Klassenstufe == "1" ~ "Grundschule",
+                      Klassenstufe == "1_2" ~ "Grundschule",
+                      Klassenstufe == "2" ~ "Grundschule",
+                      Klassenstufe == "3" ~ "Grundschule",
+                      Klassenstufe == "4" ~ "Grundschule",
+                      TRUE ~ "Gymnasium"
+         )))
+
+ggplot(lh_auf_p, aes(x = Klassenstufe, y = lh_auf, color = Schulart)) + 
+  geom_line(aes(group = NA), color = "grey", size = 1) +
+  geom_point(aes(size = length_n)) +
+  geom_text(aes(label = paste(round(lh_auf*100,0), "%"), vjust = 3)) +
+  scale_y_continuous(limits = c(0,1), expand = c(0,0)) +
+  geom_rect(aes(xmin = 0, xmax = 4.5, ymin = -Inf, ymax = Inf), fill = "pink", alpha = .01, color = NA) +
+  geom_rect(aes(xmin = 4.5, xmax = 14, ymin = -Inf, ymax = Inf), fill = "#BFEFFF", alpha = .01, color = NA) +
+  xlab("Klassenstufe") +
+  ylab("% Häufigkeit") +
+  labs(size = "Anzahl\neingegangener\nStunden") +
+  theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7")) 
+```
+
+
+## L nennt HA
+
+### Prädiktor Schulart
+
+```{r haeufigkeiten nen}
+# Compute density of BFs
+for (i in 1:m) {
+  imp_m <- matrix(table(mice::complete(imp, i)$lh_nen, mice::complete(imp, i)$Schulart), 2, 2)
+  fit <- contingencyTableBF(imp_m, sampleType="indepMulti",fixedMargin = "cols")
+  cor_results[i,"lh_nen-Schulart"] <- extractBF(fit)$bf
+    
+  chains <- posterior(fit, iterations = 1000)  # get posterior probabilities
+  showMerkm_givenGS <- chains[,"pi[2,1]"] / chains[,"pi[*,1]"]  # compute ratio for GS
+  showMerkm_givenGY <- chains[,"pi[2,2]"] / chains[,"pi[*,2]"]  # compute ratio for GY
+  cor_results[i,"prob_GSminusGY"] <- mean(mcmc(showMerkm_givenGS - showMerkm_givenGY)) # Markov Chain Monte Carlo of differences
+  
+  rm(imp_m, fit, chains)
+}
+
+summary(cor_results[,"lh_nen-Schulart"])
+
+ggplot(cor_results, aes(x = `lh_nen-Schulart`)) +
+                geom_density(alpha = .3, fill = "#b4a069", color = NA) +
+                geom_jitter(aes(x = `lh_nen-Schulart`, y=""), height = 1, width = 0, alpha = .3, size = 2.5, fill = "#b4a069", color = "#b4a069") +
+                geom_vline(xintercept = (1/3), color = "red", alpha = .4, size = 2, linetype = "dashed") +
+                geom_vline(xintercept = 3, color = "red", alpha = .4, size = 2, linetype = "dashed") +
+                scale_x_continuous(expand = c(0, 0), trans = 'log10') +
+                scale_y_discrete(expand = c(0, 0)) +
+                ylab("% Häufigkeit") +
+                xlab("BF [log10]") +
+                theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7"))
+
+# plot difference of 
+summary(cor_results[,"prob_GSminusGY"])
+```
+
+### Prädiktor Klassenstufe
+
+```{r nen Klassenstufe}
+# Compute density of BFs
+kl_results <- data.frame()
+
+for (i in 1:m) {
+  fit <- correlationBF(y = mice::complete(imp, i)$lh_nen,    # correlation
+                       x = mice::complete(imp, i)$Klassenstufe)
+  kl_results[i,"lh_nen-Klassenstufe"] <- extractBF(fit)$bf    # save BF in data frame
+  
+  rm(fit)
+}
+
+# show summary of BFs
+summary(kl_results[,"lh_nen-Klassenstufe"])  
+
+# plot BFs distribution
+ggplot(kl_results, aes(x = `lh_nen-Klassenstufe`)) +
+                geom_density(alpha = .3, fill = "#b4a069", color = NA) +
+                geom_jitter(aes(x = `lh_nen-Klassenstufe`, y=""), 
+                            height = 1, width = 0, alpha = .3, 
+                            size = 2.5, fill = "#b4a069", color = "#b4a069") +
+                geom_vline(xintercept = (1/3), color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                geom_vline(xintercept = 3, color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                scale_x_continuous(expand = c(0, 0), trans = 'log10') +
+                scale_y_discrete(expand = c(0, 0)) +
+                ylab("% Häufigkeit") +
+                xlab("BF [log10]") +
+                theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7"))
+```
+
+### Plot der deskriptiven Daten
+
+```{r nen plot}
+
+
+###### DESCRIPTIVE PLOT ############################################### #
+
+lh_nen_p <- p_data %>%
+  dplyr::filter(!is.na(lh_nen) & !is.na(Klassenstufe)) %>%
+  group_by(Klassenstufe) %>%
+  mutate(length = length(lh_nen)) %>%
+  summarize(lh_nen = mean(lh_nen, na.rm=T),
+            length_n = mean(length)) %>%
+  ungroup() %>%
+  mutate(Klassenstufe = factor(Klassenstufe, levels = c("1", "1_2", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12")),
+         Schulart = as.factor(case_when(
+                      Klassenstufe == "1" ~ "Grundschule",
+                      Klassenstufe == "1_2" ~ "Grundschule",
+                      Klassenstufe == "2" ~ "Grundschule",
+                      Klassenstufe == "3" ~ "Grundschule",
+                      Klassenstufe == "4" ~ "Grundschule",
+                      TRUE ~ "Gymnasium"
+         )))
+
+ggplot(lh_nen_p, aes(x = Klassenstufe, y = lh_nen, color = Schulart)) + 
+  geom_line(aes(group = NA), color = "grey", size = 1) +
+  geom_point(aes(size = length_n)) +
+  geom_text(aes(label = paste(round(lh_nen*100,0), "%"), vjust = 3)) +
+  scale_y_continuous(limits = c(0,1), expand = c(0,0)) +
+  geom_rect(aes(xmin = 0, xmax = 4.5, ymin = -Inf, ymax = Inf), fill = "pink", alpha = .01, color = NA) +
+  geom_rect(aes(xmin = 4.5, xmax = 14, ymin = -Inf, ymax = Inf), fill = "#BFEFFF", alpha = .01, color = NA) +
+  xlab("Klassenstufe") +
+  ylab("% Häufigkeit") +
+  labs(size = "Anzahl\neingegangener\nStunden") +
+  theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7")) 
+```
+
+
+## L schreibt HA an
+
+### Prädiktor Schulart
+
+```{r haeufigkeiten sch}
+# Compute density of BFs
+for (i in 1:m) {
+  imp_m <- matrix(table(mice::complete(imp, i)$lh_sch, mice::complete(imp, i)$Schulart), 2, 2)
+  fit <- contingencyTableBF(imp_m, sampleType="indepMulti",fixedMargin = "cols")
+  cor_results[i,"lh_sch-Schulart"] <- extractBF(fit)$bf
+    
+  chains <- posterior(fit, iterations = 1000)  # get posterior probabilities
+  showMerkm_givenGS <- chains[,"pi[2,1]"] / chains[,"pi[*,1]"]  # compute ratio for GS
+  showMerkm_givenGY <- chains[,"pi[2,2]"] / chains[,"pi[*,2]"]  # compute ratio for GY
+  cor_results[i,"prob_GSminusGY"] <- mean(mcmc(showMerkm_givenGS - showMerkm_givenGY)) # Markov Chain Monte Carlo of differences
+  
+  rm(imp_m, fit, chains)
+}
+
+summary(cor_results[,"lh_sch-Schulart"])
+
+ggplot(cor_results, aes(x = `lh_sch-Schulart`)) +
+                geom_density(alpha = .3, fill = "#b4a069", color = NA) +
+                geom_jitter(aes(x = `lh_sch-Schulart`, y=""), height = 1, width = 0, alpha = .3, size = 2.5, fill = "#b4a069", color = "#b4a069") +
+                geom_vline(xintercept = (1/3), color = "red", alpha = .4, size = 2, linetype = "dashed") +
+                geom_vline(xintercept = 3, color = "red", alpha = .4, size = 2, linetype = "dashed") +
+                scale_x_continuous(expand = c(0, 0), trans = 'log10') +
+                scale_y_discrete(expand = c(0, 0)) +
+                ylab("% Häufigkeit") +
+                xlab("BF [log10]") +
+                theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7"))
+
+
+# plot difference of 
+summary(cor_results[,"prob_GSminusGY"])
+```
+
+### Prädiktor Klassenstufe
+
+```{r sch Klassenstufe}
+# Compute density of BFs
+kl_results <- data.frame()
+
+for (i in 1:m) {
+  fit <- correlationBF(y = mice::complete(imp, i)$lh_sch,    # correlation
+                       x = mice::complete(imp, i)$Klassenstufe)
+  kl_results[i,"lh_sch-Klassenstufe"] <- extractBF(fit)$bf    # save BF in data frame
+  
+  rm(fit)
+}
+
+# show summary of BFs
+summary(kl_results[,"lh_sch-Klassenstufe"])  
+
+# plot BFs distribution
+ggplot(kl_results, aes(x = `lh_sch-Klassenstufe`)) +
+                geom_density(alpha = .3, fill = "#b4a069", color = NA) +
+                geom_jitter(aes(x = `lh_sch-Klassenstufe`, y=""), 
+                            height = 1, width = 0, alpha = .3, 
+                            size = 2.5, fill = "#b4a069", color = "#b4a069") +
+                geom_vline(xintercept = (1/3), color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                geom_vline(xintercept = 3, color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                scale_x_continuous(expand = c(0, 0), trans = 'log10') +
+                scale_y_discrete(expand = c(0, 0)) +
+                ylab("% Häufigkeit") +
+                xlab("BF [log10]") +
+                theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7"))
+```
+
+### Plot der deskriptiven Daten
+
+```{r sch plot}
+
+###### DESCRIPTIVE PLOT ############################################### #
+
+lh_sch_p <- p_data %>%
+  dplyr::filter(!is.na(lh_sch) & !is.na(Klassenstufe)) %>%
+  group_by(Klassenstufe) %>%
+  mutate(length = length(lh_sch)) %>%
+  summarize(lh_sch = mean(lh_sch, na.rm=T),
+            length_n = mean(length)) %>%
+  ungroup() %>%
+  mutate(Klassenstufe = factor(Klassenstufe, levels = c("1", "1_2", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12")),
+         Schulart = as.factor(case_when(
+                      Klassenstufe == "1" ~ "Grundschule",
+                      Klassenstufe == "1_2" ~ "Grundschule",
+                      Klassenstufe == "2" ~ "Grundschule",
+                      Klassenstufe == "3" ~ "Grundschule",
+                      Klassenstufe == "4" ~ "Grundschule",
+                      TRUE ~ "Gymnasium"
+         )))
+
+ggplot(lh_sch_p, aes(x = Klassenstufe, y = lh_sch, color = Schulart)) + 
+  geom_line(aes(group = NA), color = "grey", size = 1) +
+  geom_point(aes(size = length_n)) +
+  geom_text(aes(label = paste(round(lh_sch*100,0), "%"), vjust = 3)) +
+  scale_y_continuous(limits = c(0,1), expand = c(0,0)) +
+  geom_rect(aes(xmin = 0, xmax = 4.5, ymin = -Inf, ymax = Inf), fill = "pink", alpha = .01, color = NA) +
+  geom_rect(aes(xmin = 4.5, xmax = 14, ymin = -Inf, ymax = Inf), fill = "#BFEFFF", alpha = .01, color = NA) +
+  xlab("Klassenstufe") +
+  ylab("% Häufigkeit") +
+  labs(size = "Anzahl\neingegangener\nStunden") +
+  theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7")) 
+
+```
+
+
+## L erläutert HA  
+
+### Prädiktor Schulart
+
+```{r haeufigkeiten erl}
+# Compute density of BFs
+for (i in 1:m) {
+  imp_m <- matrix(table(mice::complete(imp, i)$lh_erl, mice::complete(imp, i)$Schulart), 2, 2)
+  fit <- contingencyTableBF(imp_m, sampleType="indepMulti",fixedMargin = "cols")
+  cor_results[i,"lh_erl-Schulart"] <- extractBF(fit)$bf
+    
+  chains <- posterior(fit, iterations = 1000)  # get posterior probabilities
+  showMerkm_givenGS <- chains[,"pi[2,1]"] / chains[,"pi[*,1]"]  # compute ratio for GS
+  showMerkm_givenGY <- chains[,"pi[2,2]"] / chains[,"pi[*,2]"]  # compute ratio for GY
+  cor_results[i,"prob_GSminusGY"] <- mean(mcmc(showMerkm_givenGS - showMerkm_givenGY)) # Markov Chain Monte Carlo of differences
+  
+  rm(imp_m, fit, chains)
+}
+
+summary(cor_results[,"lh_erl-Schulart"])
+
+ggplot(cor_results, aes(x = `lh_erl-Schulart`)) +
+                geom_density(alpha = .3, fill = "#b4a069", color = NA) +
+                geom_jitter(aes(x = `lh_erl-Schulart`, y=""), height = 1, width = 0, alpha = .3, size = 2.5, fill = "#b4a069", color = "#b4a069") +
+                geom_vline(xintercept = (1/3), color = "red", alpha = .4, size = 2, linetype = "dashed") +
+                geom_vline(xintercept = 3, color = "red", alpha = .4, size = 2, linetype = "dashed") +
+                scale_x_continuous(expand = c(0, 0), trans = 'log10') +
+                scale_y_discrete(expand = c(0, 0)) +
+                ylab("% Häufigkeit") +
+                xlab("BF [log10]") +
+                theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7"))
+
+# plot difference of 
+summary(cor_results[,"prob_GSminusGY"])
+```
+
+### Prädiktor Klassenstufe
+
+```{r erl Klassenstufe}
+# Compute density of BFs
+kl_results <- data.frame()
+
+for (i in 1:m) {
+  fit <- correlationBF(y = mice::complete(imp, i)$lh_erl,    # correlation
+                       x = mice::complete(imp, i)$Klassenstufe)
+  kl_results[i,"lh_erl-Klassenstufe"] <- extractBF(fit)$bf    # save BF in data frame
+  
+  rm(fit)
+}
+
+# show summary of BFs
+summary(kl_results[,"lh_erl-Klassenstufe"])  
+
+# plot BFs distribution
+ggplot(kl_results, aes(x = `lh_erl-Klassenstufe`)) +
+                geom_density(alpha = .3, fill = "#b4a069", color = NA) +
+                geom_jitter(aes(x = `lh_erl-Klassenstufe`, y=""), 
+                            height = 1, width = 0, alpha = .3, 
+                            size = 2.5, fill = "#b4a069", color = "#b4a069") +
+                geom_vline(xintercept = (1/3), color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                geom_vline(xintercept = 3, color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                scale_x_continuous(expand = c(0, 0), trans = 'log10') +
+                scale_y_discrete(expand = c(0, 0)) +
+                ylab("% Häufigkeit") +
+                xlab("BF [log10]") +
+                theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7"))
+```
+
+### Plot der deskriptiven Daten
+
+```{r erl plot}
+
+###### DESCRIPTIVE PLOT ############################################### #
+
+lh_erl_p <- p_data %>%
+  dplyr::filter(!is.na(lh_erl) & !is.na(Klassenstufe)) %>%
+  group_by(Klassenstufe) %>%
+  mutate(length = length(lh_erl)) %>%
+  summarize(lh_erl = mean(lh_erl, na.rm=T),
+            length_n = mean(length)) %>%
+  ungroup() %>%
+  mutate(Klassenstufe = factor(Klassenstufe, levels = c("1", "1_2", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12")),
+         Schulart = as.factor(case_when(
+                      Klassenstufe == "1" ~ "Grundschule",
+                      Klassenstufe == "1_2" ~ "Grundschule",
+                      Klassenstufe == "2" ~ "Grundschule",
+                      Klassenstufe == "3" ~ "Grundschule",
+                      Klassenstufe == "4" ~ "Grundschule",
+                      TRUE ~ "Gymnasium"
+         )))
+
+ggplot(lh_erl_p, aes(x = Klassenstufe, y = lh_erl, color = Schulart)) + 
+  geom_line(aes(group = NA), color = "grey", size = 1) +
+  geom_point(aes(size = length_n)) +
+  geom_text(aes(label = paste(round(lh_erl*100,0), "%"), vjust = 3)) +
+  scale_y_continuous(limits = c(0,1), expand = c(0,0)) +
+  geom_rect(aes(xmin = 0, xmax = 4.5, ymin = -Inf, ymax = Inf), fill = "pink", alpha = .01, color = NA) +
+  geom_rect(aes(xmin = 4.5, xmax = 14, ymin = -Inf, ymax = Inf), fill = "#BFEFFF", alpha = .01, color = NA) +
+  xlab("Klassenstufe") +
+  ylab("% Häufigkeit") +
+  labs(size = "Anzahl\neingegangener\nStunden") +
+  theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7")) 
+```
+
+
+## L will Fragen
+
+### Prädiktor Schulart
+
+```{r haeufigkeiten wfr}
+# Compute density of BFs
+for (i in 1:m) {
+  imp_m <- matrix(table(mice::complete(imp, i)$lh_wfr, mice::complete(imp, i)$Schulart), 2, 2)
+  fit <- contingencyTableBF(imp_m, sampleType="indepMulti",fixedMargin = "cols")
+  cor_results[i,"lh_wfr-Schulart"] <- extractBF(fit)$bf
+    
+  chains <- posterior(fit, iterations = 1000)  # get posterior probabilities
+  showMerkm_givenGS <- chains[,"pi[2,1]"] / chains[,"pi[*,1]"]  # compute ratio for GS
+  showMerkm_givenGY <- chains[,"pi[2,2]"] / chains[,"pi[*,2]"]  # compute ratio for GY
+  cor_results[i,"prob_GSminusGY"] <- mean(mcmc(showMerkm_givenGS - showMerkm_givenGY)) # Markov Chain Monte Carlo of differences
+  
+  rm(imp_m, fit, chains)
+}
+
+summary(cor_results[,"lh_wfr-Schulart"])
+
+ggplot(cor_results, aes(x = `lh_wfr-Schulart`)) +
+                geom_density(alpha = .3, fill = "#b4a069", color = NA) +
+                geom_jitter(aes(x = `lh_wfr-Schulart`, y=""), height = 1, width = 0, alpha = .3, size = 2.5, fill = "#b4a069", color = "#b4a069") +
+                geom_vline(xintercept = (1/3), color = "red", alpha = .4, size = 2, linetype = "dashed") +
+                geom_vline(xintercept = 3, color = "red", alpha = .4, size = 2, linetype = "dashed") +
+                scale_x_continuous(expand = c(0, 0), trans = 'log10') +
+                scale_y_discrete(expand = c(0, 0)) +
+                ylab("% Häufigkeit") +
+                xlab("BF [log10]") +
+                theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7"))
+
+
+# plot difference of 
+summary(cor_results[,"prob_GSminusGY"])
+```
+
+### Prädiktor Klassenstufe
+
+```{r wfr Klassenstufe}
+# Compute density of BFs
+kl_results <- data.frame()
+
+for (i in 1:m) {
+  fit <- correlationBF(y = mice::complete(imp, i)$lh_wfr,    # correlation
+                       x = mice::complete(imp, i)$Klassenstufe)
+  kl_results[i,"lh_wfr-Klassenstufe"] <- extractBF(fit)$bf    # save BF in data frame
+  
+  rm(fit)
+}
+
+# show summary of BFs
+summary(kl_results[,"lh_wfr-Klassenstufe"])  
+
+# plot BFs distribution
+ggplot(kl_results, aes(x = `lh_wfr-Klassenstufe`)) +
+                geom_density(alpha = .3, fill = "#b4a069", color = NA) +
+                geom_jitter(aes(x = `lh_wfr-Klassenstufe`, y=""), 
+                            height = 1, width = 0, alpha = .3, 
+                            size = 2.5, fill = "#b4a069", color = "#b4a069") +
+                geom_vline(xintercept = (1/3), color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                geom_vline(xintercept = 3, color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                scale_x_continuous(expand = c(0, 0), trans = 'log10') +
+                scale_y_discrete(expand = c(0, 0)) +
+                ylab("% Häufigkeit") +
+                xlab("BF [log10]") +
+                theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7"))
+```
+
+### Plot der deskriptiven Daten
+
+```{r wfr plot}
+
+###### DESCRIPTIVE PLOT ############################################### #
+
+lh_wfr_p <- p_data %>%
+  dplyr::filter(!is.na(lh_wfr) & !is.na(Klassenstufe)) %>%
+  group_by(Klassenstufe) %>%
+  mutate(length = length(lh_wfr)) %>%
+  summarize(lh_wfr = mean(lh_wfr, na.rm=T),
+            length_n = mean(length)) %>%
+  ungroup() %>%
+  mutate(Klassenstufe = factor(Klassenstufe, levels = c("1", "1_2", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12")),
+         Schulart = as.factor(case_when(
+                      Klassenstufe == "1" ~ "Grundschule",
+                      Klassenstufe == "1_2" ~ "Grundschule",
+                      Klassenstufe == "2" ~ "Grundschule",
+                      Klassenstufe == "3" ~ "Grundschule",
+                      Klassenstufe == "4" ~ "Grundschule",
+                      TRUE ~ "Gymnasium"
+         )))
+
+ggplot(lh_wfr_p, aes(x = Klassenstufe, y = lh_wfr, color = Schulart)) + 
+  geom_line(aes(group = NA), color = "grey", size = 1) +
+  geom_point(aes(size = length_n)) +
+  geom_text(aes(label = paste(round(lh_wfr*100,0), "%"), vjust = 3)) +
+  scale_y_continuous(limits = c(0,1), expand = c(0,0)) +
+  geom_rect(aes(xmin = 0, xmax = 4.5, ymin = -Inf, ymax = Inf), fill = "pink", alpha = .01, color = NA) +
+  geom_rect(aes(xmin = 4.5, xmax = 14, ymin = -Inf, ymax = Inf), fill = "#BFEFFF", alpha = .01, color = NA) +
+  xlab("Klassenstufe") +
+  ylab("% Häufigkeit") +
+  labs(size = "Anzahl\neingegangener\nStunden") +
+  theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7")) 
+```
+
+
+## L will Notation
+
+### Prädiktor Schulart
+
+```{r haeufigkeiten wno}
+# Compute density of BFs
+for (i in 1:m) {
+  imp_m <- matrix(table(mice::complete(imp, i)$lh_wno, mice::complete(imp, i)$Schulart), 2, 2)
+  fit <- contingencyTableBF(imp_m, sampleType="indepMulti",fixedMargin = "cols")
+  cor_results[i,"lh_wno-Schulart"] <- extractBF(fit)$bf
+    
+  chains <- posterior(fit, iterations = 1000)  # get posterior probabilities
+  showMerkm_givenGS <- chains[,"pi[2,1]"] / chains[,"pi[*,1]"]  # compute ratio for GS
+  showMerkm_givenGY <- chains[,"pi[2,2]"] / chains[,"pi[*,2]"]  # compute ratio for GY
+  cor_results[i,"prob_GSminusGY"] <- mean(mcmc(showMerkm_givenGS - showMerkm_givenGY)) # Markov Chain Monte Carlo of differences
+  
+  rm(imp_m, fit, chains)
+}
+
+summary(cor_results[,"lh_wno-Schulart"])
+
+ggplot(cor_results, aes(x = `lh_wno-Schulart`)) +
+                geom_density(alpha = .3, fill = "#b4a069", color = NA) +
+                geom_jitter(aes(x = `lh_wno-Schulart`, y=""), height = 1, width = 0, alpha = .3, size = 2.5, fill = "#b4a069", color = "#b4a069") +
+                geom_vline(xintercept = (1/3), color = "red", alpha = .4, size = 2, linetype = "dashed") +
+                geom_vline(xintercept = 3, color = "red", alpha = .4, size = 2, linetype = "dashed") +
+                scale_x_continuous(expand = c(0, 0), trans = 'log10') +
+                scale_y_discrete(expand = c(0, 0)) +
+                ylab("% Häufigkeit") +
+                xlab("BF [log10]") +
+                theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7"))
+
+# plot difference of 
+summary(cor_results[,"prob_GSminusGY"])
+```
+
+### Prädiktor Klassenstufe
+
+```{r wno Klassenstufe}
+# Compute density of BFs
+kl_results <- data.frame()
+
+for (i in 1:m) {
+  fit <- correlationBF(y = mice::complete(imp, i)$lh_wno,    # correlation
+                       x = mice::complete(imp, i)$Klassenstufe)
+  kl_results[i,"lh_wno-Klassenstufe"] <- extractBF(fit)$bf    # save BF in data frame
+  
+  rm(fit)
+}
+
+# show summary of BFs
+summary(kl_results[,"lh_wno-Klassenstufe"])  
+
+# plot BFs distribution
+ggplot(kl_results, aes(x = `lh_wno-Klassenstufe`)) +
+                geom_density(alpha = .3, fill = "#b4a069", color = NA) +
+                geom_jitter(aes(x = `lh_wno-Klassenstufe`, y=""), 
+                            height = 1, width = 0, alpha = .3, 
+                            size = 2.5, fill = "#b4a069", color = "#b4a069") +
+                geom_vline(xintercept = (1/3), color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                geom_vline(xintercept = 3, color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                scale_x_continuous(expand = c(0, 0), trans = 'log10') +
+                scale_y_discrete(expand = c(0, 0)) +
+                ylab("% Häufigkeit") +
+                xlab("BF [log10]") +
+                theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7"))
+```
+
+### Plot der deskriptiven Daten
+
+```{r wno plot}
+
+###### DESCRIPTIVE PLOT ############################################### #
+
+lh_wno_p <- p_data %>%
+  dplyr::filter(!is.na(lh_wno) & !is.na(Klassenstufe)) %>%
+  group_by(Klassenstufe) %>%
+  mutate(length = length(lh_wno)) %>%
+  summarize(lh_wno = mean(lh_wno, na.rm=T),
+            length_n = mean(length)) %>%
+  ungroup() %>%
+  mutate(Klassenstufe = factor(Klassenstufe, levels = c("1", "1_2", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12")),
+         Schulart = as.factor(case_when(
+                      Klassenstufe == "1" ~ "Grundschule",
+                      Klassenstufe == "1_2" ~ "Grundschule",
+                      Klassenstufe == "2" ~ "Grundschule",
+                      Klassenstufe == "3" ~ "Grundschule",
+                      Klassenstufe == "4" ~ "Grundschule",
+                      TRUE ~ "Gymnasium"
+         )))
+
+ggplot(lh_wno_p, aes(x = Klassenstufe, y = lh_wno, color = Schulart)) + 
+  geom_line(aes(group = NA), color = "grey", size = 1) +
+  geom_point(aes(size = length_n)) +
+  geom_text(aes(label = paste(round(lh_wno*100,0), "%"), vjust = 3)) +
+  scale_y_continuous(limits = c(0,1), expand = c(0,0)) +
+  geom_rect(aes(xmin = 0, xmax = 4.5, ymin = -Inf, ymax = Inf), fill = "pink", alpha = .01, color = NA) +
+  geom_rect(aes(xmin = 4.5, xmax = 14, ymin = -Inf, ymax = Inf), fill = "#BFEFFF", alpha = .01, color = NA) +
+  xlab("Klassenstufe") +
+  ylab("% Häufigkeit") +
+  labs(size = "Anzahl\neingegangener\nStunden") +
+  theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7")) 
+```
+
+
+## L achtet auf Notation
+
+### Prädiktor Schulart
+
+```{r haeufigkeiten ano}
+# Compute density of BFs
+for (i in 1:m) {
+  imp_m <- matrix(table(mice::complete(imp, i)$lh_ano, mice::complete(imp, i)$Schulart), 2, 2)
+  fit <- contingencyTableBF(imp_m, sampleType="indepMulti",fixedMargin = "cols")
+  cor_results[i,"lh_ano-Schulart"] <- extractBF(fit)$bf
+    
+  chains <- posterior(fit, iterations = 1000)  # get posterior probabilities
+  showMerkm_givenGS <- chains[,"pi[2,1]"] / chains[,"pi[*,1]"]  # compute ratio for GS
+  showMerkm_givenGY <- chains[,"pi[2,2]"] / chains[,"pi[*,2]"]  # compute ratio for GY
+  cor_results[i,"prob_GSminusGY"] <- mean(mcmc(showMerkm_givenGS - showMerkm_givenGY)) # Markov Chain Monte Carlo of differences
+  
+  rm(imp_m, fit, chains)
+}
+
+summary(cor_results[,"lh_ano-Schulart"])
+
+ggplot(cor_results, aes(x = `lh_ano-Schulart`)) +
+                geom_density(alpha = .3, fill = "#b4a069", color = NA) +
+                geom_jitter(aes(x = `lh_ano-Schulart`, y=""), height = 1, width = 0, alpha = .3, size = 2.5, fill = "#b4a069", color = "#b4a069") +
+                geom_vline(xintercept = (1/3), color = "red", alpha = .4, size = 2, linetype = "dashed") +
+                geom_vline(xintercept = 3, color = "red", alpha = .4, size = 2, linetype = "dashed") +
+                scale_x_continuous(expand = c(0, 0), trans = 'log10') +
+                scale_y_discrete(expand = c(0, 0)) +
+                ylab("% Häufigkeit") +
+                xlab("BF [log10]") +
+                theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7"))
+
+# plot difference of 
+summary(cor_results[,"prob_GSminusGY"])
+```
+
+### Prädiktor Klassenstufe
+
+```{r ano Klassenstufe}
+# Compute density of BFs
+kl_results <- data.frame()
+
+for (i in 1:m) {
+  fit <- correlationBF(y = mice::complete(imp, i)$lh_ano,    # correlation
+                       x = mice::complete(imp, i)$Klassenstufe)
+  kl_results[i,"lh_ano-Klassenstufe"] <- extractBF(fit)$bf    # save BF in data frame
+  
+  rm(fit)
+}
+
+# show summary of BFs
+summary(kl_results[,"lh_ano-Klassenstufe"])  
+
+# plot BFs distribution
+ggplot(kl_results, aes(x = `lh_ano-Klassenstufe`)) +
+                geom_density(alpha = .3, fill = "#b4a069", color = NA) +
+                geom_jitter(aes(x = `lh_ano-Klassenstufe`, y=""), 
+                            height = 1, width = 0, alpha = .3, 
+                            size = 2.5, fill = "#b4a069", color = "#b4a069") +
+                geom_vline(xintercept = (1/3), color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                geom_vline(xintercept = 3, color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                scale_x_continuous(expand = c(0, 0), trans = 'log10') +
+                scale_y_discrete(expand = c(0, 0)) +
+                ylab("% Häufigkeit") +
+                xlab("BF [log10]") +
+                theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7"))
+```
+
+### Plot der deskriptiven Daten
+
+```{r ano plot}
+
+###### DESCRIPTIVE PLOT ############################################### #
+
+lh_ano_p <- p_data %>%
+  dplyr::filter(!is.na(lh_ano) & !is.na(Klassenstufe)) %>%
+  group_by(Klassenstufe) %>%
+  mutate(length = length(lh_ano)) %>%
+  summarize(lh_ano = mean(lh_ano, na.rm=T),
+            length_n = mean(length)) %>%
+  ungroup() %>%
+  mutate(Klassenstufe = factor(Klassenstufe, levels = c("1", "1_2", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12")),
+         Schulart = as.factor(case_when(
+                      Klassenstufe == "1" ~ "Grundschule",
+                      Klassenstufe == "1_2" ~ "Grundschule",
+                      Klassenstufe == "2" ~ "Grundschule",
+                      Klassenstufe == "3" ~ "Grundschule",
+                      Klassenstufe == "4" ~ "Grundschule",
+                      TRUE ~ "Gymnasium"
+         )))
+
+ggplot(lh_ano_p, aes(x = Klassenstufe, y = lh_ano, color = Schulart)) + 
+  geom_line(aes(group = NA), color = "grey", size = 1) +
+  geom_point(aes(size = length_n)) +
+  geom_text(aes(label = paste(round(lh_ano*100,0), "%"), vjust = 3)) +
+  scale_y_continuous(limits = c(0,1), expand = c(0,0)) +
+  geom_rect(aes(xmin = 0, xmax = 4.5, ymin = -Inf, ymax = Inf), fill = "pink", alpha = .01, color = NA) +
+  geom_rect(aes(xmin = 4.5, xmax = 14, ymin = -Inf, ymax = Inf), fill = "#BFEFFF", alpha = .01, color = NA) +
+  xlab("Klassenstufe") +
+  ylab("% Häufigkeit") +
+  labs(size = "Anzahl\neingegangener\nStunden") +
+  theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7")) 
+
+```
+
+
+
+
+## L beantwortet Fragen
+
+### Prädiktor Schulart
+
+```{r bfr}
+#### Compute BFs within informed hypotheses framework (bain) ##################################### #
+
+### for bain: compute vcov by hand ###
+# create data frame to collect var and cov for each imputation
+vcov_df <- data.frame(Grundschule = as.numeric(),
+                      Gymnasium = as.numeric()
+                      )
+
+mean_df <- data.frame(Grundschule = as.numeric(),
+                      Gymnasium = as.numeric()
+                      )
+
+# sample size per group
+samp_gr <- table(mice::complete(imp)$Schulart)
+
+
+## loop over all m imputations
+for(i in 1:m) {
+  fit_lm <- lm(lh_bfr ~ Schulart-1, data = mice::complete(imp, i))
+  
+  var_lm <- summary(fit_lm)$sigma**2 # get variance of the means (VOM)
+  vcov_df[i, "Grundschule"] <- var_lm/samp_gr["Grundschule"] # compute VOM per group
+  vcov_df[i, "Gymnasium"] <- var_lm/samp_gr["Gymnasium"] # compute VOM per group
+  
+  # collect estimates of the means
+  mean_df[i, "Grundschule"] <- coef(fit_lm)["SchulartGrundschule"]
+  mean_df[i, "Gymnasium"] <- coef(fit_lm)["SchulartGymnasium"]
+  
+  rm(fit_lm, var_lm) # clean up, because we like it tidy in here
+}
+
+## make var matrices 
+# compute the mean over var
+vcov_df <- vcov_df %>%
+        summarize_all(mean)
+
+# create matrices
+mat1 <- matrix(vcov_df$Grundschule, 1, 1)
+mat2 <- matrix(vcov_df$Gymnasium, 1, 1)
+
+variances <- list(mat1, mat2)
+
+## compute mean of estimates
+bf_data <- mean_df %>%
+        summarize_all(mean)
+bf_data <- as.numeric(bf_data)
+names(bf_data) <- c("Grund", "Gym")
+
+## BAIN ##### #
+# generating hypotheses
+hypotheses <- "Gym = Grund; Gym < Grund; Gym > Grund"
+
+bf_hyp <- bain(bf_data, 
+              hypothesis = hypotheses,
+              n = samp_gr,           # size of the groups
+              Sigma = variances,     # matrices of residual variances of groups
+              group_parameters = 1,  # there is 1 group specific parameter (the mean in each group)
+              joint_parameters = 0   # there are no parameters that apply to each of the groups (e.g. the regression coefficient of a covariate)
+              )
+
+print(bf_hyp)
+print(bf_hyp$BFmatrix)
+
+```
+
+### Prädiktor Klassenstufe
+
+```{r bfr Klassenstufe}
+# Compute density of BFs
+kl_results <- data.frame()
+
+for (i in 1:m) {
+  fit <- correlationBF(y = mice::complete(imp, i)$lh_bfr,    # correlation
+                       x = mice::complete(imp, i)$Klassenstufe)
+  kl_results[i,"lh_bfr-Klassenstufe"] <- extractBF(fit)$bf    # save BF in data frame
+  
+  rm(fit)
+}
+
+# show summary of BFs
+summary(kl_results[,"lh_bfr-Klassenstufe"])  
+
+# plot BFs distribution
+ggplot(kl_results, aes(x = `lh_bfr-Klassenstufe`)) +
+                geom_density(alpha = .3, fill = "#b4a069", color = NA) +
+                geom_jitter(aes(x = `lh_bfr-Klassenstufe`, y=""), 
+                            height = 1, width = 0, alpha = .3, 
+                            size = 2.5, fill = "#b4a069", color = "#b4a069") +
+                geom_vline(xintercept = (1/3), color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                geom_vline(xintercept = 3, color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                scale_x_continuous(expand = c(0, 0), trans = 'log10') +
+                scale_y_discrete(expand = c(0, 0)) +
+                ylab("% Häufigkeit") +
+                xlab("BF [log10]") +
+                theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7"))
+```
+
+### Plot der deskriptiven Daten
+
+```{r bfr plot}
+###### DESCRIPTIVE PLOT ############################################### #
+
+lh_bfr_p <- p_data %>%
+  dplyr::filter(!is.na(lh_bfr) & !is.na(Klassenstufe)) %>%
+  group_by(Klassenstufe) %>%
+  mutate(length = length(lh_bfr)) %>%
+  summarize(lh_bfr = mean(lh_bfr, na.rm=T),
+            length_n = mean(length)) %>%
+  ungroup() %>%
+  mutate(Klassenstufe = factor(Klassenstufe, levels = c("1", "1_2", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12")),
+         Schulart = as.factor(case_when(
+                      Klassenstufe == "1" ~ "Grundschule",
+                      Klassenstufe == "1_2" ~ "Grundschule",
+                      Klassenstufe == "2" ~ "Grundschule",
+                      Klassenstufe == "3" ~ "Grundschule",
+                      Klassenstufe == "4" ~ "Grundschule",
+                      TRUE ~ "Gymnasium"
+         )))
+
+ggplot(lh_bfr_p, aes(x = Klassenstufe, y = lh_bfr, color = Schulart)) + 
+  geom_line(aes(group = NA), color = "grey", size = 1) +
+  geom_point(aes(size = length_n)) +
+  geom_text(aes(label = round(lh_bfr, 2), vjust = 3)) +
+  scale_y_continuous(limits = c(0,(max(lh_bfr_p$lh_bfr)*1.1)), expand = c(0,0)) +
+  geom_rect(aes(xmin = 0, xmax = 4.5, ymin = -Inf, ymax = Inf), fill = "pink", alpha = .01, color = NA) +
+  geom_rect(aes(xmin = 4.5, xmax = 14, ymin = -Inf, ymax = Inf), fill = "#BFEFFF", alpha = .01, color = NA) +
+  xlab("Klassenstufe") +
+  ylab("∅ absolute Häufigkeit") +
+  labs(size = "Anzahl\neingegangener\nStunden") +
+  theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7")) 
+```
+
+
+## SuS sind aufmerksam
+
+### Prädiktor Schulart
+
+```{r auf}
+#### Compute BFs within informed hypotheses framework (bain) ##################################### #
+
+### for bain: compute vcov by hand ###
+# create data frame to collect var and cov for each imputation
+vcov_df <- data.frame(Grundschule = as.numeric(),
+                      Gymnasium = as.numeric()
+                      )
+
+mean_df <- data.frame(Grundschule = as.numeric(),
+                      Gymnasium = as.numeric()
+                      )
+
+# sample size per group
+samp_gr <- table(mice::complete(imp)$Schulart)
+
+
+## loop over all m imputations
+for(i in 1:m) {
+  fit_lm <- lm(sh_auf ~ Schulart-1, data = mice::complete(imp, i))
+  
+  var_lm <- summary(fit_lm)$sigma**2 # get variance of the means (VOM)
+  vcov_df[i, "Grundschule"] <- var_lm/samp_gr["Grundschule"] # compute VOM per group
+  vcov_df[i, "Gymnasium"] <- var_lm/samp_gr["Gymnasium"] # compute VOM per group
+  
+  # collect estimates of the means
+  mean_df[i, "Grundschule"] <- coef(fit_lm)["SchulartGrundschule"]
+  mean_df[i, "Gymnasium"] <- coef(fit_lm)["SchulartGymnasium"]
+  
+  rm(fit_lm, var_lm) # clean up, because we like it tidy in here
+}
+
+## make var matrices 
+# compute the mean over var
+vcov_df <- vcov_df %>%
+        summarize_all(mean)
+
+# create matrices
+mat1 <- matrix(vcov_df$Grundschule, 1, 1)
+mat2 <- matrix(vcov_df$Gymnasium, 1, 1)
+
+variances <- list(mat1, mat2)
+
+## compute mean of estimates
+bf_data <- mean_df %>%
+        summarize_all(mean)
+bf_data <- as.numeric(bf_data)
+names(bf_data) <- c("Grund", "Gym")
+
+## BAIN ##### #
+# generating hypotheses
+hypotheses <- "Gym = Grund; Gym < Grund; Gym > Grund"
+
+bf_hyp <- bain(bf_data, 
+              hypothesis = hypotheses,
+              n = samp_gr,           # size of the groups
+              Sigma = variances,     # matrices of residual variances of groups
+              group_parameters = 1,  # there is 1 group specific parameter (the mean in each group)
+              joint_parameters = 0   # there are no parameters that apply to each of the groups (e.g. the regression coefficient of a covariate)
+              )
+
+print(bf_hyp)
+print(bf_hyp$BFmatrix)
+
+
+```
+
+### Prädiktor Klassenstufe
+
+```{r sh_auf Klassenstufe}
+# Compute density of BFs
+kl_results <- data.frame()
+
+for (i in 1:m) {
+  fit <- correlationBF(y = mice::complete(imp, i)$sh_auf,    # correlation
+                       x = mice::complete(imp, i)$Klassenstufe)
+  kl_results[i,"sh_auf-Klassenstufe"] <- extractBF(fit)$bf    # save BF in data frame
+  
+  rm(fit)
+}
+
+# show summary of BFs
+summary(kl_results[,"sh_auf-Klassenstufe"])  
+
+# plot BFs distribution
+ggplot(kl_results, aes(x = `sh_auf-Klassenstufe`)) +
+                geom_density(alpha = .3, fill = "#b4a069", color = NA) +
+                geom_jitter(aes(x = `sh_auf-Klassenstufe`, y=""), 
+                            height = 1, width = 0, alpha = .3, 
+                            size = 2.5, fill = "#b4a069", color = "#b4a069") +
+                geom_vline(xintercept = (1/3), color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                geom_vline(xintercept = 3, color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                scale_x_continuous(expand = c(0, 0), trans = 'log10') +
+                scale_y_discrete(expand = c(0, 0)) +
+                ylab("% Häufigkeit") +
+                xlab("BF [log10]") +
+                theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7"))
+```
+
+### Plot der deskriptiven Daten
+
+```{r sh_auf plot}
+
+###### DESCRIPTIVE PLOT ############################################### #
+
+sh_auf_p <- p_data %>%
+  dplyr::filter(!is.na(sh_auf) & !is.na(Klassenstufe)) %>%
+  group_by(Klassenstufe) %>%
+  mutate(length = length(sh_auf)) %>%
+  summarize(sh_auf = mean(sh_auf, na.rm=T),
+            length_n = mean(length)) %>%
+  ungroup() %>%
+  mutate(Klassenstufe = factor(Klassenstufe, levels = c("1", "1_2", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12")),
+         Schulart = as.factor(case_when(
+                      Klassenstufe == "1" ~ "Grundschule",
+                      Klassenstufe == "1_2" ~ "Grundschule",
+                      Klassenstufe == "2" ~ "Grundschule",
+                      Klassenstufe == "3" ~ "Grundschule",
+                      Klassenstufe == "4" ~ "Grundschule",
+                      TRUE ~ "Gymnasium"
+         )))
+
+ggplot(sh_auf_p, aes(x = Klassenstufe, y = sh_auf, color = Schulart)) + 
+  geom_line(aes(group = NA), color = "grey", size = 1) +
+  geom_point(aes(size = length_n)) +
+  geom_text(aes(label = round(sh_auf,1), vjust = -3)) +
+  scale_y_continuous(limits = c(1,5), expand = c(0,0)) +
+  geom_rect(aes(xmin = 0, xmax = 4.5, ymin = -Inf, ymax = Inf), fill = "pink", alpha = .01, color = NA) +
+  geom_rect(aes(xmin = 4.5, xmax = 14, ymin = -Inf, ymax = Inf), fill = "#BFEFFF", alpha = .01, color = NA) +
+  xlab("Klassenstufe") +
+  ylab("Zustimmung (Likert Item)") +
+  labs(size = "Anzahl\neingegangener\nStunden") +
+  theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7")) 
+```
+
+## SuS melden sich
+
+### Prädiktor Schulart
+
+```{r mel}
+#### Compute BFs within informed hypotheses framework (bain) ##################################### #
+
+### for bain: compute vcov by hand ###
+# create data frame to collect var and cov for each imputation
+vcov_df <- data.frame(Grundschule = as.numeric(),
+                      Gymnasium = as.numeric()
+                      )
+
+mean_df <- data.frame(Grundschule = as.numeric(),
+                      Gymnasium = as.numeric()
+                      )
+
+# sample size per group
+samp_gr <- table(mice::complete(imp)$Schulart)
+
+
+## loop over all m imputations
+for(i in 1:m) {
+  fit_lm <- lm(sh_mel ~ Schulart-1, data = mice::complete(imp, i))
+  
+  var_lm <- summary(fit_lm)$sigma**2 # get variance of the means (VOM)
+  vcov_df[i, "Grundschule"] <- var_lm/samp_gr["Grundschule"] # compute VOM per group
+  vcov_df[i, "Gymnasium"] <- var_lm/samp_gr["Gymnasium"] # compute VOM per group
+  
+  # collect estimates of the means
+  mean_df[i, "Grundschule"] <- coef(fit_lm)["SchulartGrundschule"]
+  mean_df[i, "Gymnasium"] <- coef(fit_lm)["SchulartGymnasium"]
+  
+  rm(fit_lm, var_lm) # clean up, because we like it tidy in here
+}
+
+## make var matrices 
+# compute the mean over var
+vcov_df <- vcov_df %>%
+        summarize_all(mean)
+
+# create matrices
+mat1 <- matrix(vcov_df$Grundschule, 1, 1)
+mat2 <- matrix(vcov_df$Gymnasium, 1, 1)
+
+variances <- list(mat1, mat2)
+
+## compute mean of estimates
+bf_data <- mean_df %>%
+        summarize_all(mean)
+bf_data <- as.numeric(bf_data)
+names(bf_data) <- c("Grund", "Gym")
+
+## BAIN ##### #
+# generating hypotheses
+hypotheses <- "Gym = Grund; Gym < Grund; Gym > Grund"
+
+bf_hyp <- bain(bf_data, 
+              hypothesis = hypotheses,
+              n = samp_gr,           # size of the groups
+              Sigma = variances,     # matrices of residual variances of groups
+              group_parameters = 1,  # there is 1 group specific parameter (the mean in each group)
+              joint_parameters = 0   # there are no parameters that apply to each of the groups (e.g. the regression coefficient of a covariate)
+              )
+
+print(bf_hyp)
+print(bf_hyp$BFmatrix)
+```
+
+### Prädiktor Klassenstufe
+
+```{r sh_mel Klassenstufe}
+# Compute density of BFs
+kl_results <- data.frame()
+
+for (i in 1:m) {
+  fit <- correlationBF(y = mice::complete(imp, i)$sh_mel,    # correlation
+                       x = mice::complete(imp, i)$Klassenstufe)
+  kl_results[i,"sh_mel-Klassenstufe"] <- extractBF(fit)$bf    # save BF in data frame
+  
+  rm(fit)
+}
+
+# show summary of BFs
+summary(kl_results[,"sh_mel-Klassenstufe"])  
+
+# plot BFs distribution
+ggplot(kl_results, aes(x = `sh_mel-Klassenstufe`)) +
+                geom_density(alpha = .3, fill = "#b4a069", color = NA) +
+                geom_jitter(aes(x = `sh_mel-Klassenstufe`, y=""), 
+                            height = 1, width = 0, alpha = .3, 
+                            size = 2.5, fill = "#b4a069", color = "#b4a069") +
+                geom_vline(xintercept = (1/3), color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                geom_vline(xintercept = 3, color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                scale_x_continuous(expand = c(0, 0), trans = 'log10') +
+                scale_y_discrete(expand = c(0, 0)) +
+                ylab("% Häufigkeit") +
+                xlab("BF [log10]") +
+                theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7"))
+```
+
+### Plot der deskriptiven Daten
+
+```{r sh_mel plot}
+###### DESCRIPTIVE PLOT ############################################### #
+
+sh_mel_p <- p_data %>%
+  dplyr::filter(!is.na(sh_mel) & !is.na(Klassenstufe)) %>%
+  group_by(Klassenstufe) %>%
+  mutate(length = length(sh_mel)) %>%
+  summarize(sh_mel = mean(sh_mel, na.rm=T),
+            length_n = mean(length)) %>%
+  ungroup() %>%
+  mutate(Klassenstufe = factor(Klassenstufe, levels = c("1", "1_2", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12")),
+         Schulart = as.factor(case_when(
+                      Klassenstufe == "1" ~ "Grundschule",
+                      Klassenstufe == "1_2" ~ "Grundschule",
+                      Klassenstufe == "2" ~ "Grundschule",
+                      Klassenstufe == "3" ~ "Grundschule",
+                      Klassenstufe == "4" ~ "Grundschule",
+                      TRUE ~ "Gymnasium"
+         )))
+
+ggplot(sh_mel_p, aes(x = Klassenstufe, y = sh_mel, color = Schulart)) + 
+  geom_line(aes(group = NA), color = "grey", size = 1) +
+  geom_point(aes(size = length_n)) +
+  geom_text(aes(label = round(sh_mel, 2), vjust = 3)) +
+  scale_y_continuous(limits = c(0,(max(sh_mel_p$sh_mel)*1.1)), expand = c(0,0)) +
+  geom_rect(aes(xmin = 0, xmax = 4.5, ymin = -Inf, ymax = Inf), fill = "pink", alpha = .01, color = NA) +
+  geom_rect(aes(xmin = 4.5, xmax = 14, ymin = -Inf, ymax = Inf), fill = "#BFEFFF", alpha = .01, color = NA) +
+  xlab("Klassenstufe") +
+  ylab("∅ absolute Häufigkeit") +
+  labs(size = "Anzahl\neingegangener\nStunden") +
+  theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7")) 
+```
+
+
+## SuS fragen
+
+### Prädiktor Schulart
+
+```{r fra}
+#### Compute BFs within informed hypotheses framework (bain) ##################################### #
+
+### for bain: compute vcov by hand ###
+# create data frame to collect var and cov for each imputation
+vcov_df <- data.frame(Grundschule = as.numeric(),
+                      Gymnasium = as.numeric()
+                      )
+
+mean_df <- data.frame(Grundschule = as.numeric(),
+                      Gymnasium = as.numeric()
+                      )
+
+# sample size per group
+samp_gr <- table(mice::complete(imp)$Schulart)
+
+
+## loop over all m imputations
+for(i in 1:m) {
+  fit_lm <- lm(sh_fra ~ Schulart-1, data = mice::complete(imp, i))
+  
+  var_lm <- summary(fit_lm)$sigma**2 # get variance of the means (VOM)
+  vcov_df[i, "Grundschule"] <- var_lm/samp_gr["Grundschule"] # compute VOM per group
+  vcov_df[i, "Gymnasium"] <- var_lm/samp_gr["Gymnasium"] # compute VOM per group
+  
+  # collect estimates of the means
+  mean_df[i, "Grundschule"] <- coef(fit_lm)["SchulartGrundschule"]
+  mean_df[i, "Gymnasium"] <- coef(fit_lm)["SchulartGymnasium"]
+  
+  rm(fit_lm, var_lm) # clean up, because we like it tidy in here
+}
+
+## make var matrices 
+# compute the mean over var
+vcov_df <- vcov_df %>%
+        summarize_all(mean)
+
+# create matrices
+mat1 <- matrix(vcov_df$Grundschule, 1, 1)
+mat2 <- matrix(vcov_df$Gymnasium, 1, 1)
+
+variances <- list(mat1, mat2)
+
+## compute mean of estimates
+bf_data <- mean_df %>%
+        summarize_all(mean)
+bf_data <- as.numeric(bf_data)
+names(bf_data) <- c("Grund", "Gym")
+
+## BAIN ##### #
+# generating hypotheses
+hypotheses <- "Gym = Grund; Gym < Grund; Gym > Grund"
+
+bf_hyp <- bain(bf_data, 
+              hypothesis = hypotheses,
+              n = samp_gr,           # size of the groups
+              Sigma = variances,     # matrices of residual variances of groups
+              group_parameters = 1,  # there is 1 group specific parameter (the mean in each group)
+              joint_parameters = 0   # there are no parameters that apply to each of the groups (e.g. the regression coefficient of a covariate)
+              )
+
+print(bf_hyp)
+print(bf_hyp$BFmatrix)
+
+```
+
+### Prädiktor Klassenstufe
+
+```{r sh_fra Klassenstufe}
+# Compute density of BFs
+kl_results <- data.frame()
+
+for (i in 1:m) {
+  fit <- correlationBF(y = mice::complete(imp, i)$sh_fra,    # correlation
+                       x = mice::complete(imp, i)$Klassenstufe)
+  kl_results[i,"sh_fra-Klassenstufe"] <- extractBF(fit)$bf    # save BF in data frame
+  
+  rm(fit)
+}
+
+# show summary of BFs
+summary(kl_results[,"sh_fra-Klassenstufe"])  
+
+# plot BFs distribution
+ggplot(kl_results, aes(x = `sh_fra-Klassenstufe`)) +
+                geom_density(alpha = .3, fill = "#b4a069", color = NA) +
+                geom_jitter(aes(x = `sh_fra-Klassenstufe`, y=""), 
+                            height = 1, width = 0, alpha = .3, 
+                            size = 2.5, fill = "#b4a069", color = "#b4a069") +
+                geom_vline(xintercept = (1/3), color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                geom_vline(xintercept = 3, color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                scale_x_continuous(expand = c(0, 0), trans = 'log10') +
+                scale_y_discrete(expand = c(0, 0)) +
+                ylab("% Häufigkeit") +
+                xlab("BF [log10]") +
+                theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7"))
+```
+
+### Plot der deskriptiven Daten
+
+```{r sh_fra plot}
+###### DESCRIPTIVE PLOT ############################################### #
+
+sh_fra_p <- p_data %>%
+  dplyr::filter(!is.na(sh_fra) & !is.na(Klassenstufe)) %>%
+  group_by(Klassenstufe) %>%
+  mutate(length = length(sh_fra)) %>%
+  summarize(sh_fra = mean(sh_fra, na.rm=T),
+            length_n = mean(length)) %>%
+  ungroup() %>%
+  mutate(Klassenstufe = factor(Klassenstufe, levels = c("1", "1_2", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12")),
+         Schulart = as.factor(case_when(
+                      Klassenstufe == "1" ~ "Grundschule",
+                      Klassenstufe == "1_2" ~ "Grundschule",
+                      Klassenstufe == "2" ~ "Grundschule",
+                      Klassenstufe == "3" ~ "Grundschule",
+                      Klassenstufe == "4" ~ "Grundschule",
+                      TRUE ~ "Gymnasium"
+         )))
+
+ggplot(sh_fra_p, aes(x = Klassenstufe, y = sh_fra, color = Schulart)) + 
+  geom_line(aes(group = NA), color = "grey", size = 1) +
+  geom_point(aes(size = length_n)) +
+  geom_text(aes(label = round(sh_fra, 2), vjust = 3)) +
+  scale_y_continuous(limits = c(0,(max(sh_fra_p$sh_fra)*1.1)), expand = c(0,0)) +
+  geom_rect(aes(xmin = 0, xmax = 4.5, ymin = -Inf, ymax = Inf), fill = "pink", alpha = .01, color = NA) +
+  geom_rect(aes(xmin = 4.5, xmax = 14, ymin = -Inf, ymax = Inf), fill = "#BFEFFF", alpha = .01, color = NA) +
+  xlab("Klassenstufe") +
+  ylab("∅ absolute Häufigkeit") +
+  labs(size = "Anzahl\neingegangener\nStunden") +
+  theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7")) 
+
+```
+
+
+## SuS notieren
+
+### Prädiktor Schulart
+
+```{r not}
+#### Compute BFs within informed hypotheses framework (bain) ##################################### #
+
+### for bain: compute vcov by hand ###
+# create data frame to collect var and cov for each imputation
+vcov_df <- data.frame(Grundschule = as.numeric(),
+                      Gymnasium = as.numeric()
+                      )
+
+mean_df <- data.frame(Grundschule = as.numeric(),
+                      Gymnasium = as.numeric()
+                      )
+
+# sample size per group
+samp_gr <- table(mice::complete(imp)$Schulart)
+
+
+## loop over all m imputations
+for(i in 1:m) {
+  fit_lm <- lm(sh_not ~ Schulart-1, data = mice::complete(imp, i))
+  
+  var_lm <- summary(fit_lm)$sigma**2 # get variance of the means (VOM)
+  vcov_df[i, "Grundschule"] <- var_lm/samp_gr["Grundschule"] # compute VOM per group
+  vcov_df[i, "Gymnasium"] <- var_lm/samp_gr["Gymnasium"] # compute VOM per group
+  
+  # collect estimates of the means
+  mean_df[i, "Grundschule"] <- coef(fit_lm)["SchulartGrundschule"]
+  mean_df[i, "Gymnasium"] <- coef(fit_lm)["SchulartGymnasium"]
+  
+  rm(fit_lm, var_lm) # clean up, because we like it tidy in here
+}
+
+## make var matrices 
+# compute the mean over var
+vcov_df <- vcov_df %>%
+        summarize_all(mean)
+
+# create matrices
+mat1 <- matrix(vcov_df$Grundschule, 1, 1)
+mat2 <- matrix(vcov_df$Gymnasium, 1, 1)
+
+variances <- list(mat1, mat2)
+
+## compute mean of estimates
+bf_data <- mean_df %>%
+        summarize_all(mean)
+bf_data <- as.numeric(bf_data)
+names(bf_data) <- c("Grund", "Gym")
+
+## BAIN ##### #
+# generating hypotheses
+hypotheses <- "Gym = Grund; Gym < Grund; Gym > Grund"
+
+bf_hyp <- bain(bf_data, 
+              hypothesis = hypotheses,
+              n = samp_gr,           # size of the groups
+              Sigma = variances,     # matrices of residual variances of groups
+              group_parameters = 1,  # there is 1 group specific parameter (the mean in each group)
+              joint_parameters = 0   # there are no parameters that apply to each of the groups (e.g. the regression coefficient of a covariate)
+              )
+
+print(bf_hyp)
+print(bf_hyp$BFmatrix)
+
+```
+
+### Prädiktor Klassenstufe
+
+```{r sh_not Klassenstufe}
+# Compute density of BFs
+kl_results <- data.frame()
+
+for (i in 1:m) {
+  fit <- correlationBF(y = mice::complete(imp, i)$sh_not,    # correlation
+                       x = mice::complete(imp, i)$Klassenstufe)
+  kl_results[i,"sh_not-Klassenstufe"] <- extractBF(fit)$bf    # save BF in data frame
+  
+  rm(fit)
+}
+
+# show summary of BFs
+summary(kl_results[,"sh_not-Klassenstufe"])  
+
+# plot BFs distribution
+ggplot(kl_results, aes(x = `sh_not-Klassenstufe`)) +
+                geom_density(alpha = .3, fill = "#b4a069", color = NA) +
+                geom_jitter(aes(x = `sh_not-Klassenstufe`, y=""), 
+                            height = 1, width = 0, alpha = .3, 
+                            size = 2.5, fill = "#b4a069", color = "#b4a069") +
+                geom_vline(xintercept = (1/3), color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                geom_vline(xintercept = 3, color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                scale_x_continuous(expand = c(0, 0), trans = 'log10') +
+                scale_y_discrete(expand = c(0, 0)) +
+                ylab("% Häufigkeit") +
+                xlab("BF [log10]") +
+                theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7"))
+```
+
+### Plot der deskriptiven Daten
+
+```{r sh_not plot}
+###### DESCRIPTIVE PLOT ############################################### #
+
+sh_not_p <- p_data %>%
+  dplyr::filter(!is.na(sh_not) & !is.na(Klassenstufe)) %>%
+  group_by(Klassenstufe) %>%
+  mutate(length = length(sh_not)) %>%
+  summarize(sh_not = mean(sh_not, na.rm=T),
+            length_n = mean(length)) %>%
+  ungroup() %>%
+  mutate(Klassenstufe = factor(Klassenstufe, levels = c("1", "1_2", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12")),
+         Schulart = as.factor(case_when(
+                      Klassenstufe == "1" ~ "Grundschule",
+                      Klassenstufe == "1_2" ~ "Grundschule",
+                      Klassenstufe == "2" ~ "Grundschule",
+                      Klassenstufe == "3" ~ "Grundschule",
+                      Klassenstufe == "4" ~ "Grundschule",
+                      TRUE ~ "Gymnasium"
+         )))
+
+ggplot(sh_not_p, aes(x = Klassenstufe, y = sh_not, color = Schulart)) + 
+  geom_line(aes(group = NA), color = "grey", size = 1) +
+  geom_point(aes(size = length_n)) +
+  geom_text(aes(label = paste(round(sh_not,0), "%"), vjust = 3)) +
+  scale_y_continuous(limits = c(0,(max(sh_not_p$sh_not)*1.1)), expand = c(0,0)) +
+  geom_rect(aes(xmin = 0, xmax = 4.5, ymin = -Inf, ymax = Inf), fill = "pink", alpha = .01, color = NA) +
+  geom_rect(aes(xmin = 4.5, xmax = 14, ymin = -Inf, ymax = Inf), fill = "#BFEFFF", alpha = .01, color = NA) +
+  xlab("Klassenstufe") +
+  ylab("∅ absolute Häufigkeit") +
+  labs(size = "Anzahl\neingegangener\nStunden") +
+  theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7")) 
+```
+
+
+# Korrelationen
+
+Bitte mit der Maus über die einzelnen Punkte fahren, um zu erfahren um welche Korrelation es sich handelt.
+
+```{r korr1, fig.width=11, fig.height=11}
+p_dataGS <- p_data %>%
+  filter(Schulart == "Grundschule")
+
+p_dataGY <- p_data %>%
+  filter(Schulart == "Gymnasium")
+
+impGS <- mice(p_dataGS, 
+            maxit = maxit, 
+            m = m,
+            meth = meth,
+            pred = pred,
+            seed = 666,
+            printFlag = F
+            )
+
+impGY <- mice(p_dataGY, 
+            maxit = maxit, 
+            m = m,
+            meth = meth,
+            pred = pred,
+            seed = 666,
+            printFlag = F
+            )
+
+corGS <- miceadds::micombine.cor(impGS, variables = c("lh_ank", "lh_auf", "lh_nen", 
+                                                      "lh_sch", "lh_erl", "lh_wfr", 
+                                                      "lh_wno", "lh_ano", "lh_bfr", 
+                                                      "sh_auf", "sh_mel", "sh_fra", 
+                                                      "sh_not"))
+
+corGY <- miceadds::micombine.cor(impGY, variables = c("lh_ank", "lh_auf", "lh_nen", 
+                                                      "lh_sch", "lh_erl", "lh_wfr", 
+                                                      "lh_wno", "lh_ano", "lh_bfr", 
+                                                      "sh_auf", "sh_mel", "sh_fra", 
+                                                      "sh_not"))
+
+corGS <- corGS[1:78,] %>%
+    mutate(Korrelation = paste(variable1, variable2, sep="-"),
+           rGS = round(r, digits = 3)) %>%
+    dplyr::select(Korrelation, rGS)
+
+corGY <- corGY[1:78,] %>%
+    mutate(Korrelation = paste(variable1, variable2, sep="-"),
+           rGY = round(r, digits = 3)) %>%
+    dplyr::select(Korrelation, rGY)
+
+corGSGY <- full_join(corGS, corGY, by = "Korrelation")
+
+
+# library(ggrepel)
+# ggplot(corGSGY, aes(x=rGS, y=rGY, color = Korrelation, label = Korrelation)) +
+#   geom_point() +
+#   scale_x_continuous(limits = c(0,1)) +
+#   scale_y_continuous(limits = c(0,1)) +
+#   geom_abline(intercept = 0, slope = 1) +
+#   geom_label_repel() +
+#   theme(legend.position = "none")
+
+
+library(plotly)
+axis_def <- list(range = c(-.4, 1),
+                 dtick = 0.25,
+                 automargin = TRUE)
+
+plot_ly() %>%
+  add_trace(
+    x = c(-.4,-.4,1),
+    y = c(-.4,  1, 1),
+    name = "Korrelation in GY größer",
+    type = 'scatter',
+    fill = 'toself',
+    fillcolor = '#BFEFFF',
+    opacity = .4,
+    hoveron = 'points',
+    marker = list(
+      color = '#BFEFFF',
+      opacity = 0),
+    line = list(
+      color = '#BFEFFF'),
+    text = "",
+    hoverinfo = ''
+    ) %>%
+  add_trace(
+    x = c(-.4, 1,1),
+    y = c(-.4,-.4, 1),
+    name = "Korrelation in GS größer",
+    type = 'scatter',
+    fill = 'toself',
+    fillcolor = 'pink',
+    opacity = .4,
+    hoveron = 'points',
+    marker = list(
+      color = 'pink',
+      opacity = 0),
+    line = list(
+      color = 'pink'),
+    text = "",
+    hoverinfo = ''
+    ) %>%
+  add_trace(
+    data = corGSGY, 
+    x = ~rGS, 
+    y = ~rGY,
+    type = "scatter", 
+    mode = "markers",
+    marker = list(
+      color = "darkgrey",
+      opacity = .85
+    ),
+    name = "Korrelationskoeffizient in GY und GS",
+    text = ~paste("Korrelation: ", Korrelation, 
+                  '<br>r<sub>GY</sub>= ', rGY, 
+                  '<br>r<sub>GS</sub>= ', rGS)) %>%
+  layout(
+    xaxis = axis_def,
+    yaxis = axis_def,
+    autosize = F, 
+    width = 800, 
+    height = 800,
+    legend = list(orientation = 'h',
+                  x = 0,
+                  y = 1))
+
+
+pander(corGSGY)
+
+
+miceadds::micombine.cor(imp45, variables = c("beg_hw_min", "dau_hw_min"))
+miceadds::micombine.cor(imp90, variables = c("beg_hw_min", "dau_hw_min"))
+```
+
+
+
+```{r dichotome korrelationen 1, fig.width=11, fig.height=11}
+library(DescTools)
+cor_var <- c("lh_ank", "lh_auf", "lh_nen", "lh_sch", "lh_erl", "lh_wfr", "lh_wno", "lh_ano")
+cor_datGS <- data.frame()
+cor_datGY <- data.frame()
+
+# Grundschule
+for (n_i in 1:i) {                # über alle Imputationen
+  for (cor_1 in 1:7) {            # Kombinationen aller dichotomen
+    for (cor_2 in (cor_1+1):8) {  # Variablen erstellen
+      tmp <- eval(parse(text = paste0("YuleQ(", 
+                         "mice::complete(impGS, ", n_i, ")$", cor_var[cor_1],
+                         ", ",
+                         "mice::complete(impGS, ", n_i, ")$", cor_var[cor_2],
+                         ")",
+                         sep="")    # für jeden vollständigen Datensatz
+                        )           # mit einer bestimmten Var-Kombination
+                  )                 # YulesQ berechnen
+      
+      # Wert in Datensatz speichern
+      cor_datGS[n_i, paste0(cor_var[cor_1], "-", cor_var[cor_2])] <- tmp
+      rm(tmp)
+    }
+  }
+}
+
+# Gymnasium
+for (n_i in 1:i) {                # über alle Imputationen
+  for (cor_1 in 1:7) {            # Kombinationen aller dichotomen
+    for (cor_2 in (cor_1+1):8) {  # Variablen erstellen
+      tmp <- eval(parse(text = paste0("YuleQ(", 
+                         "mice::complete(impGY, ", n_i, ")$", cor_var[cor_1],
+                         ", ",
+                         "mice::complete(impGY, ", n_i, ")$", cor_var[cor_2],
+                         ")",
+                         sep="")    # für jeden vollständigen Datensatz
+                        )           # mit einer bestimmten Var-Kombination
+                  )                 # YulesQ berechnen
+      
+      # Wert in Datensatz speichern
+      cor_datGY[n_i, paste0(cor_var[cor_1], "-", cor_var[cor_2])] <- tmp
+      rm(tmp)
+    }
+  }
+}
+```
+\
+
+In order to combine correlation estimates via Rubin's Rules we first have to apply Fisher-Transformation for Correlation to z-Score as correlations are not normally distributed and then transform the values back to correlation coefficients.
+
+```{r dichotome korrelationen 2, fig.width=11, fig.height=11}
+# apply Fisher-Transformation
+cor_dat_fisherGS <- FisherZ(cor_datGS)
+cor_dat_fisherGY <- FisherZ(cor_datGY)
+
+# combine estimates 
+cor_dat_fisherGS <- cor_dat_fisherGS %>%
+                      summarise_all(mean)
+cor_dat_fisherGY <- cor_dat_fisherGY %>%
+                      summarise_all(mean)
+
+# transform back to correlation coefficients
+cor_datGS <- FisherZInv(cor_dat_fisherGS)
+cor_datGY <- FisherZInv(cor_dat_fisherGY)
+
+# pivot into long data format, for later joining
+cor_datGS_l <- pivot_longer(cor_datGS, names_to = "Korrelation", values_to = "rGS", cols = 1:28) 
+cor_datGY_l <- pivot_longer(cor_datGY, names_to = "Korrelation", values_to = "rGY", cols = 1:28) 
+
+
+
+# p_data_dm <- p_data %>%
+#   dplyr::select(lh_ank, lh_auf, lh_sch, lh_erl, lh_wfr, lh_wno, lh_ano)
+# dicho_r_m <- data.frame()
+# 
+# # Correlation matrix & visualization
+# for(i in 1:7) {
+#   for(j in 1:7){
+#     # print(c(i,j))
+#     tmp <- matrix(table(p_data_dm[,i], p_data_dm[,j]), 2, 2)
+#     dicho_r_m[j,i] <- Yule(tmp)                                   #Alternative phi
+#     dicho_r_m[i,j] <- Yule(tmp)                                   #Alternative phi
+#   }
+# }
+# 
+# names(dicho_r_m) <- c("lh_ank", "lh_auf", "lh_sch", "lh_erl", "lh_wfr", "lh_wno", "lh_ano")
+# row.names(dicho_r_m) <- c("lh_ank", "lh_auf", "lh_sch", "lh_erl", "lh_wfr", "lh_wno", "lh_ano")
+# # corrgram(dicho_r_m, type = "cor", lower.panel = "panel.pie", upper.panel = "panel.cor")
+# 
+# # GS vs. GYM
+# 
+# dicho_r_gs <- data.frame(cor_gs = NA, comb = NA)
+# dicho_r_gs <- dicho_r_gs[-1,]
+# 
+# p_data_dm_gs <- p_data %>%
+#   dplyr::filter(Schulart == "Grundschule") %>%
+#   dplyr::select(lh_ank, lh_auf, lh_sch, lh_erl, lh_wfr, lh_wno, lh_ano)
+# 
+# for(i in 1:6) {
+#   for(j in (1+i):7){
+#     tmp <- matrix(table(p_data_dm_gs[,i], p_data_dm_gs[,j]), 2, 2)
+#     tmp1 <-  data.frame()
+#     tmp1[1, "cor_gs"] <- Yule(tmp)
+#     tmp1[1, "comb"] <- paste(names(p_data_dm_gs[i]), "-", names(p_data_dm_gs[j]))
+#     dicho_r_gs <- rbind(dicho_r_gs, tmp1)
+#   }
+# }
+# 
+# 
+# 
+# 
+# dicho_r_gy <- data.frame(cor_gy = NA, comb = NA)
+# dicho_r_gy <- dicho_r_gy[-1,]
+# 
+# p_data_dm_gy <- p_data %>%
+#   dplyr::filter(Schulart == "Gymnasium") %>%
+#   dplyr::select(lh_ank, lh_auf, lh_sch, lh_erl, lh_wfr, lh_wno, lh_ano)
+# 
+# for(i in 1:6) {
+#   for(j in (1+i):7){
+#     tmp <- matrix(table(p_data_dm_gy[,i], p_data_dm_gy[,j]), 2, 2)
+#     tmp1 <-  data.frame()
+#     tmp1[1, "cor_gy"] <- Yule(tmp)
+#     tmp1[1, "comb"] <- paste(names(p_data_dm_gy[i]), "-", names(p_data_dm_gy[j]))
+#     dicho_r_gy <- rbind(dicho_r_gy, tmp1)
+#   }
+# }
+# 
+# dicho_r <- full_join(dicho_r_gs, dicho_r_gy, by="comb")
+# 
+# 
+# 
+# ggplot(dicho_r, aes(x=cor_gs, y=cor_gy, color = comb, label = comb)) +
+#   geom_point() +
+#   scale_x_continuous(limits = c(0,1)) +
+#   scale_y_continuous(limits = c(0,1)) +
+#   geom_abline(intercept = 0, slope = 1) +
+#   geom_label_repel() +
+#   theme(legend.position = "none")
 ```
