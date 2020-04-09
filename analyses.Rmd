@@ -32,7 +32,7 @@ library(corrgram)
 library(hrbrthemes)
 library(MASS)
 library(bain)
-
+library(plotly)
 R.Version()
 ```
 
@@ -188,14 +188,21 @@ gg_miss_upset(p_data)
 __imputation model__
 ```{r model}
 p_data$Schulart <- as.factor(p_data$Schulart)
+p_data$Schulart_n <- ifelse(p_data$Schulart == "Grundschule", 0, 1)
 p_data$Klassenstufe <- as.numeric(p_data$Klassenstufe)
 
-model_tab <- data.frame(variable = c("beg_hw_min", "dau_hw_min", "stunde", "Schulart", "Klassenstufe", "lh_ank", "lh_auf", "lh_nen", "lh_sch", 
-                                     "lh_erl", "lh_wfr", "lh_bfr", "lh_wno", "lh_ano", "sh_auf", "sh_mel", "sh_fra", "sh_not"),
-                        'scale type' = c("metric", "metric", "metric", "nominal", "metric", "binary", "binary", "binary", "binary", 
-                                         "binary", "binary", "metric", "binary", "binary", "metric", "metric", "metric", "metric"),
-                        method = c("pmm", "pmm", "pmm", "polyreg", "pmm", "logreg", "logreg", "logreg", "logreg", 
-                                   "logreg", "logreg", "pmm", "logreg", "logreg", "pmm", "pmm", "pmm", "pmm"))
+model_tab <- data.frame(variable = c("beg_hw_min", "dau_hw_min", "stunde", "Schulart", 
+                                     "Klassenstufe", "lh_ank", "lh_auf", "lh_nen", "lh_sch", 
+                                     "lh_erl", "lh_wfr", "lh_bfr", "lh_wno", "lh_ano", "sh_auf", 
+                                     "sh_mel", "sh_fra", "sh_not", "Schulart_n"),
+                        'scale type' = c("metric", "metric", "metric", "nominal", 
+                                         "metric", "binary", "binary", "binary", "binary", 
+                                         "binary", "binary", "metric", "binary", "binary", "metric", 
+                                         "metric", "metric", "metric", "metric"),
+                        method = c("pmm", "pmm", "pmm", "polyreg", 
+                                   "pmm", "logreg", "logreg", "logreg", "logreg", 
+                                   "logreg", "logreg", "pmm", "logreg", "logreg", "pmm", 
+                                   "pmm", "pmm", "pmm", "~ifelse(Schulart == 'Grundschule', 0, 1)"))
 
 pander(model_tab)
 
@@ -204,8 +211,10 @@ pander(model_tab)
 
 ```{r def model}
 # Defining methods
-meth <- c("pmm", "pmm", "pmm", "polyreg", "pmm", "logreg", "logreg", "logreg", "logreg", 
-          "logreg", "logreg", "pmm", "logreg", "logreg", "pmm", "pmm", "pmm", "pmm")
+meth <- c("pmm", "pmm", "pmm", "polyreg", 
+          "pmm", "logreg", "logreg", "logreg", "logreg", 
+          "logreg", "logreg", "pmm", "logreg", "logreg", "pmm", 
+          "pmm", "pmm", "pmm", "~ifelse(Schulart == 'Grundschule', 0, 1)")
 ```
 
 __number of imputations__  
@@ -233,6 +242,7 @@ ini <- mice(p_data,
 pred <- ini$predictorMatrix
 pred[,"stunde"] <- 0 # stunde highly correlated with beg_hw_min
 pred[,"lh_bfr"] <- 0 # lh_bfr highly correlated with sh_fra
+pred[,"Schulart_n"] <- 0 # Schulart_n is just numeric version of Schulart
 ```
 
 
@@ -268,7 +278,7 @@ imp <- mice(p_data,
 
 __plausible values__
 ```{r plaus}
-## will produce one plot for each imputation (200) on each variable
+## will produce one plot for each imputation (1000) on each variable
 ## uncomment if interested, otherwise I spare the space
 # lattice::stripplot(imp, pch = 20, cex = 1.2)
 ```
@@ -991,13 +1001,9 @@ for (i in 1:m) {
                             fixedMargin = "cols")          # GS and GY as fixed
   cor_results[i,"lh_ank-Schulart"] <- extractBF(fit)$bf    # save BF in data frame
   
-  chains <- posterior(fit, iterations = 1000)  # get posterior probabilities
-  showMerkm_givenGS <- chains[,"pi[2,1]"] / chains[,"pi[*,1]"]  # compute ratio for GS
-  showMerkm_givenGY <- chains[,"pi[2,2]"] / chains[,"pi[*,2]"]  # compute ratio for GY
-  cor_results[i,"prob_GSminusGY"] <- mean(mcmc(showMerkm_givenGS - showMerkm_givenGY)) # Markov Chain
-                                                                         # Monte Carlo of differences
+  cor_results[i,"phi"] <- phi(imp_m, digits = 3)    # get phi coefficient for effect size
   
-  rm(imp_m, fit, chains)
+  rm(imp_m, fit)
 }
 
 # show summary of BFs
@@ -1024,9 +1030,24 @@ ggplot(cor_results, aes(x = `lh_ank-Schulart`)) +
                       panel.border = element_blank(),
                       panel.background = element_rect(fill = "#f6f7f7"))
 
-# plot difference of 
-summary(cor_results[,"prob_GSminusGY"])
+
+### effect size: phi #########
+# In order to combine correlation estimates via Rubin's Rules we first 
+# have to apply Fisher-Transformation for Correlation to z-Score as 
+# correlations are not normally distributed and then transform the 
+# values back to correlation coefficients.
+
+# apply Fischer transformation
+cor_results_phi_z <- FisherZ(cor_results$phi)
+
+# combine estimates 
+cor_results_phi_z <- mean(cor_results_phi_z)
+
+# transform back to correlation coefficients
+phi <- FisherZInv(cor_results_phi_z)
 ```
+
+Effektstärke: $\varphi$= `r round(phi, digits = 3)`
 
 ### Prädiktor Klassenstufe
 
@@ -1122,12 +1143,9 @@ for (i in 1:m) {
   fit <- contingencyTableBF(imp_m, sampleType="indepMulti",fixedMargin = "cols")
   cor_results[i,"lh_auf-Schulart"] <- extractBF(fit)$bf
     
-  chains <- posterior(fit, iterations = 1000)  # get posterior probabilities
-  showMerkm_givenGS <- chains[,"pi[2,1]"] / chains[,"pi[*,1]"]  # compute ratio for GS
-  showMerkm_givenGY <- chains[,"pi[2,2]"] / chains[,"pi[*,2]"]  # compute ratio for GY
-  cor_results[i,"prob_GSminusGY"] <- mean(mcmc(showMerkm_givenGS - showMerkm_givenGY)) # Markov Chain Monte Carlo of differences
+  cor_results[i,"phi"] <- phi(imp_m, digits = 3)    # get phi coefficient for effect size
   
-  rm(imp_m, fit, chains)
+  rm(imp_m, fit)
 }
 
 summary(cor_results[,"lh_auf-Schulart"])
@@ -1148,9 +1166,23 @@ ggplot(cor_results, aes(x = `lh_auf-Schulart`)) +
                       panel.border = element_blank(),
                       panel.background = element_rect(fill = "#f6f7f7"))
 
-# plot difference of 
-summary(cor_results[,"prob_GSminusGY"])
+### effect size: phi #########
+# In order to combine correlation estimates via Rubin's Rules we first 
+# have to apply Fisher-Transformation for Correlation to z-Score as 
+# correlations are not normally distributed and then transform the 
+# values back to correlation coefficients.
+
+# apply Fischer transformation
+cor_results_phi_z <- FisherZ(cor_results$phi)
+
+# combine estimates 
+cor_results_phi_z <- mean(cor_results_phi_z)
+
+# transform back to correlation coefficients
+phi <- FisherZInv(cor_results_phi_z)
 ```
+
+Effektstärke: $\varphi$= `r round(phi, digits = 3)`
 
 ### Prädiktor Klassenstufe
 
@@ -1245,12 +1277,9 @@ for (i in 1:m) {
   fit <- contingencyTableBF(imp_m, sampleType="indepMulti",fixedMargin = "cols")
   cor_results[i,"lh_nen-Schulart"] <- extractBF(fit)$bf
     
-  chains <- posterior(fit, iterations = 1000)  # get posterior probabilities
-  showMerkm_givenGS <- chains[,"pi[2,1]"] / chains[,"pi[*,1]"]  # compute ratio for GS
-  showMerkm_givenGY <- chains[,"pi[2,2]"] / chains[,"pi[*,2]"]  # compute ratio for GY
-  cor_results[i,"prob_GSminusGY"] <- mean(mcmc(showMerkm_givenGS - showMerkm_givenGY)) # Markov Chain Monte Carlo of differences
+  cor_results[i,"phi"] <- phi(imp_m, digits = 3)    # get phi coefficient for effect size
   
-  rm(imp_m, fit, chains)
+  rm(imp_m, fit)
 }
 
 summary(cor_results[,"lh_nen-Schulart"])
@@ -1271,9 +1300,23 @@ ggplot(cor_results, aes(x = `lh_nen-Schulart`)) +
                       panel.border = element_blank(),
                       panel.background = element_rect(fill = "#f6f7f7"))
 
-# plot difference of 
-summary(cor_results[,"prob_GSminusGY"])
+### effect size: phi #########
+# In order to combine correlation estimates via Rubin's Rules we first 
+# have to apply Fisher-Transformation for Correlation to z-Score as 
+# correlations are not normally distributed and then transform the 
+# values back to correlation coefficients.
+
+# apply Fischer transformation
+cor_results_phi_z <- FisherZ(cor_results$phi)
+
+# combine estimates 
+cor_results_phi_z <- mean(cor_results_phi_z)
+
+# transform back to correlation coefficients
+phi <- FisherZInv(cor_results_phi_z)
 ```
+
+Effektstärke: $\varphi$= `r round(phi, digits = 3)`
 
 ### Prädiktor Klassenstufe
 
@@ -1368,12 +1411,9 @@ for (i in 1:m) {
   fit <- contingencyTableBF(imp_m, sampleType="indepMulti",fixedMargin = "cols")
   cor_results[i,"lh_sch-Schulart"] <- extractBF(fit)$bf
     
-  chains <- posterior(fit, iterations = 1000)  # get posterior probabilities
-  showMerkm_givenGS <- chains[,"pi[2,1]"] / chains[,"pi[*,1]"]  # compute ratio for GS
-  showMerkm_givenGY <- chains[,"pi[2,2]"] / chains[,"pi[*,2]"]  # compute ratio for GY
-  cor_results[i,"prob_GSminusGY"] <- mean(mcmc(showMerkm_givenGS - showMerkm_givenGY)) # Markov Chain Monte Carlo of differences
+  cor_results[i,"phi"] <- phi(imp_m, digits = 3)    # get phi coefficient for effect size
   
-  rm(imp_m, fit, chains)
+  rm(imp_m, fit)
 }
 
 summary(cor_results[,"lh_sch-Schulart"])
@@ -1395,9 +1435,23 @@ ggplot(cor_results, aes(x = `lh_sch-Schulart`)) +
                       panel.background = element_rect(fill = "#f6f7f7"))
 
 
-# plot difference of 
-summary(cor_results[,"prob_GSminusGY"])
+### effect size: phi #########
+# In order to combine correlation estimates via Rubin's Rules we first 
+# have to apply Fisher-Transformation for Correlation to z-Score as 
+# correlations are not normally distributed and then transform the 
+# values back to correlation coefficients.
+
+# apply Fischer transformation
+cor_results_phi_z <- FisherZ(cor_results$phi)
+
+# combine estimates 
+cor_results_phi_z <- mean(cor_results_phi_z)
+
+# transform back to correlation coefficients
+phi <- FisherZInv(cor_results_phi_z)
 ```
+
+Effektstärke: $\varphi$= `r round(phi, digits = 3)`
 
 ### Prädiktor Klassenstufe
 
@@ -1492,12 +1546,9 @@ for (i in 1:m) {
   fit <- contingencyTableBF(imp_m, sampleType="indepMulti",fixedMargin = "cols")
   cor_results[i,"lh_erl-Schulart"] <- extractBF(fit)$bf
     
-  chains <- posterior(fit, iterations = 1000)  # get posterior probabilities
-  showMerkm_givenGS <- chains[,"pi[2,1]"] / chains[,"pi[*,1]"]  # compute ratio for GS
-  showMerkm_givenGY <- chains[,"pi[2,2]"] / chains[,"pi[*,2]"]  # compute ratio for GY
-  cor_results[i,"prob_GSminusGY"] <- mean(mcmc(showMerkm_givenGS - showMerkm_givenGY)) # Markov Chain Monte Carlo of differences
+  cor_results[i,"phi"] <- phi(imp_m, digits = 3)    # get phi coefficient for effect size
   
-  rm(imp_m, fit, chains)
+  rm(imp_m, fit)
 }
 
 summary(cor_results[,"lh_erl-Schulart"])
@@ -1518,9 +1569,23 @@ ggplot(cor_results, aes(x = `lh_erl-Schulart`)) +
                       panel.border = element_blank(),
                       panel.background = element_rect(fill = "#f6f7f7"))
 
-# plot difference of 
-summary(cor_results[,"prob_GSminusGY"])
+### effect size: phi #########
+# In order to combine correlation estimates via Rubin's Rules we first 
+# have to apply Fisher-Transformation for Correlation to z-Score as 
+# correlations are not normally distributed and then transform the 
+# values back to correlation coefficients.
+
+# apply Fischer transformation
+cor_results_phi_z <- FisherZ(cor_results$phi)
+
+# combine estimates 
+cor_results_phi_z <- mean(cor_results_phi_z)
+
+# transform back to correlation coefficients
+phi <- FisherZInv(cor_results_phi_z)
 ```
+
+Effektstärke: $\varphi$= `r round(phi, digits = 3)`
 
 ### Prädiktor Klassenstufe
 
@@ -1614,12 +1679,9 @@ for (i in 1:m) {
   fit <- contingencyTableBF(imp_m, sampleType="indepMulti",fixedMargin = "cols")
   cor_results[i,"lh_wfr-Schulart"] <- extractBF(fit)$bf
     
-  chains <- posterior(fit, iterations = 1000)  # get posterior probabilities
-  showMerkm_givenGS <- chains[,"pi[2,1]"] / chains[,"pi[*,1]"]  # compute ratio for GS
-  showMerkm_givenGY <- chains[,"pi[2,2]"] / chains[,"pi[*,2]"]  # compute ratio for GY
-  cor_results[i,"prob_GSminusGY"] <- mean(mcmc(showMerkm_givenGS - showMerkm_givenGY)) # Markov Chain Monte Carlo of differences
+  cor_results[i,"phi"] <- phi(imp_m, digits = 3)    # get phi coefficient for effect size
   
-  rm(imp_m, fit, chains)
+  rm(imp_m, fit)
 }
 
 summary(cor_results[,"lh_wfr-Schulart"])
@@ -1641,9 +1703,23 @@ ggplot(cor_results, aes(x = `lh_wfr-Schulart`)) +
                       panel.background = element_rect(fill = "#f6f7f7"))
 
 
-# plot difference of 
-summary(cor_results[,"prob_GSminusGY"])
+### effect size: phi #########
+# In order to combine correlation estimates via Rubin's Rules we first 
+# have to apply Fisher-Transformation for Correlation to z-Score as 
+# correlations are not normally distributed and then transform the 
+# values back to correlation coefficients.
+
+# apply Fischer transformation
+cor_results_phi_z <- FisherZ(cor_results$phi)
+
+# combine estimates 
+cor_results_phi_z <- mean(cor_results_phi_z)
+
+# transform back to correlation coefficients
+phi <- FisherZInv(cor_results_phi_z)
 ```
+
+Effektstärke: $\varphi$= `r round(phi, digits = 3)`
 
 ### Prädiktor Klassenstufe
 
@@ -1737,12 +1813,9 @@ for (i in 1:m) {
   fit <- contingencyTableBF(imp_m, sampleType="indepMulti",fixedMargin = "cols")
   cor_results[i,"lh_wno-Schulart"] <- extractBF(fit)$bf
     
-  chains <- posterior(fit, iterations = 1000)  # get posterior probabilities
-  showMerkm_givenGS <- chains[,"pi[2,1]"] / chains[,"pi[*,1]"]  # compute ratio for GS
-  showMerkm_givenGY <- chains[,"pi[2,2]"] / chains[,"pi[*,2]"]  # compute ratio for GY
-  cor_results[i,"prob_GSminusGY"] <- mean(mcmc(showMerkm_givenGS - showMerkm_givenGY)) # Markov Chain Monte Carlo of differences
+  cor_results[i,"phi"] <- phi(imp_m, digits = 3)    # get phi coefficient for effect size
   
-  rm(imp_m, fit, chains)
+  rm(imp_m, fit)
 }
 
 summary(cor_results[,"lh_wno-Schulart"])
@@ -1763,9 +1836,23 @@ ggplot(cor_results, aes(x = `lh_wno-Schulart`)) +
                       panel.border = element_blank(),
                       panel.background = element_rect(fill = "#f6f7f7"))
 
-# plot difference of 
-summary(cor_results[,"prob_GSminusGY"])
+### effect size: phi #########
+# In order to combine correlation estimates via Rubin's Rules we first 
+# have to apply Fisher-Transformation for Correlation to z-Score as 
+# correlations are not normally distributed and then transform the 
+# values back to correlation coefficients.
+
+# apply Fischer transformation
+cor_results_phi_z <- FisherZ(cor_results$phi)
+
+# combine estimates 
+cor_results_phi_z <- mean(cor_results_phi_z)
+
+# transform back to correlation coefficients
+phi <- FisherZInv(cor_results_phi_z)
 ```
+
+Effektstärke: $\varphi$= `r round(phi, digits = 3)`
 
 ### Prädiktor Klassenstufe
 
@@ -1859,12 +1946,9 @@ for (i in 1:m) {
   fit <- contingencyTableBF(imp_m, sampleType="indepMulti",fixedMargin = "cols")
   cor_results[i,"lh_ano-Schulart"] <- extractBF(fit)$bf
     
-  chains <- posterior(fit, iterations = 1000)  # get posterior probabilities
-  showMerkm_givenGS <- chains[,"pi[2,1]"] / chains[,"pi[*,1]"]  # compute ratio for GS
-  showMerkm_givenGY <- chains[,"pi[2,2]"] / chains[,"pi[*,2]"]  # compute ratio for GY
-  cor_results[i,"prob_GSminusGY"] <- mean(mcmc(showMerkm_givenGS - showMerkm_givenGY)) # Markov Chain Monte Carlo of differences
+  cor_results[i,"phi"] <- phi(imp_m, digits = 3)    # get phi coefficient for effect size
   
-  rm(imp_m, fit, chains)
+  rm(imp_m, fit)
 }
 
 summary(cor_results[,"lh_ano-Schulart"])
@@ -1885,9 +1969,23 @@ ggplot(cor_results, aes(x = `lh_ano-Schulart`)) +
                       panel.border = element_blank(),
                       panel.background = element_rect(fill = "#f6f7f7"))
 
-# plot difference of 
-summary(cor_results[,"prob_GSminusGY"])
+### effect size: phi #########
+# In order to combine correlation estimates via Rubin's Rules we first 
+# have to apply Fisher-Transformation for Correlation to z-Score as 
+# correlations are not normally distributed and then transform the 
+# values back to correlation coefficients.
+
+# apply Fischer transformation
+cor_results_phi_z <- FisherZ(cor_results$phi)
+
+# combine estimates 
+cor_results_phi_z <- mean(cor_results_phi_z)
+
+# transform back to correlation coefficients
+phi <- FisherZInv(cor_results_phi_z)
 ```
+
+Effektstärke: $\varphi$= `r round(phi, digits = 3)`
 
 ### Prädiktor Klassenstufe
 
@@ -2726,9 +2824,21 @@ ggplot(sh_not_p, aes(x = Klassenstufe, y = sh_not, color = Schulart)) +
 
 # Korrelationen
 
-Bitte mit der Maus über die einzelnen Punkte fahren, um zu erfahren um welche Korrelation es sich handelt.
+## Bivariate Inter-Item-Korrelationen
 
-```{r korr1, fig.width=11, fig.height=11}
+In Abhängigkeit von der Kombination der Skalenniveaus beider Variablen, werden entsprechende Korrelationen berechnet.
+
+* Beide Variablen metrisch: Pearson's Produkt-Moment-Korrelation $r$
+* Eine Variable metrisch, eine Variable dichotom: Punkt-Biseriale-Korrelation $r_{pb}$ (in diesem Fall mathematisch äquivalent zu Pearson's Produkt-Moment-Korrelation)
+* Beide Variablen dichotom: Pearson's $\varphi$
+
+Bei großen Stichproben approximiert Pearson's $\varphi$ die Pearson Produkt-Moment-Korrelation $r$ und so werden die berechneten Werten für $\varphi$ und $r$ in ihrer Größe vergleichbar.
+
+\
+
+Computing all correlations using Pearson. Correlations between two dichotomous variables will be replaced later by Pearson's $\varphi$ (see below). To compute and replace them later anyway doesn't make hell of a lot sense, but it was just easier/quicker to compute all correlations (with the full data set) and then replace the dichotomous ones afterwards.
+
+```{r alle Korrelationen, fig.width=11, fig.height=11}
 p_dataGS <- p_data %>%
   filter(Schulart == "Grundschule")
 
@@ -2776,19 +2886,93 @@ corGY <- corGY[1:78,] %>%
     dplyr::select(Korrelation, rGY)
 
 corGSGY <- full_join(corGS, corGY, by = "Korrelation")
+```
 
+Computing dichotomous correlations.
 
-# library(ggrepel)
-# ggplot(corGSGY, aes(x=rGS, y=rGY, color = Korrelation, label = Korrelation)) +
-#   geom_point() +
-#   scale_x_continuous(limits = c(0,1)) +
-#   scale_y_continuous(limits = c(0,1)) +
-#   geom_abline(intercept = 0, slope = 1) +
-#   geom_label_repel() +
-#   theme(legend.position = "none")
+```{r dichotome korrelationen generieung, fig.width=11, fig.height=11}
+cor_var <- c("lh_ank", "lh_auf", "lh_nen", "lh_sch", "lh_erl", "lh_wfr", "lh_wno", "lh_ano")
+cor_diGS <- data.frame()
+cor_diGY <- data.frame()
 
+# Grundschule
+for (n_i in 1:i) {                # über alle Imputationen
+  for (cor_1 in 1:7) {            # Kombinationen aller dichotomen
+    for (cor_2 in (cor_1+1):8) {  # Variablen erstellen
+      # create contingency table
+      imp_m <- eval(parse(text = paste0("matrix(table(", 
+                                        "mice::complete(impGS, ", n_i, ")$", cor_var[cor_1],
+                                        ", ",
+                                        "mice::complete(impGS, ", n_i, ")$", cor_var[cor_2],
+                                        "), 2, 2)",
+                                        sep="")    # für jeden vollständigen Datensatz
+                          )                        # mit einer bestimmten Var-Kombination
+                    ) 
+      
+      # Wert in Datensatz speichern
+      cor_diGS[n_i, paste0(cor_var[cor_1], "-", cor_var[cor_2])] <- phi(imp_m, digits = 3)
+      rm(imp_m)
+    }
+  }
+}
 
-library(plotly)
+# Gymnasium
+for (n_i in 1:i) {                # über alle Imputationen
+  for (cor_1 in 1:7) {            # Kombinationen aller dichotomen
+    for (cor_2 in (cor_1+1):8) {  # Variablen erstellen
+      # create contingency table
+      imp_m <- eval(parse(text = paste0("matrix(table(", 
+                                        "mice::complete(impGY, ", n_i, ")$", cor_var[cor_1],
+                                        ", ",
+                                        "mice::complete(impGY, ", n_i, ")$", cor_var[cor_2],
+                                        "), 2, 2)",
+                                        sep="")    # für jeden vollständigen Datensatz
+                          )                        # mit einer bestimmten Var-Kombination
+                    ) 
+      
+      # Wert in Datensatz speichern
+      cor_diGY[n_i, paste0(cor_var[cor_1], "-", cor_var[cor_2])] <- phi(imp_m, digits = 3)
+      rm(imp_m)
+    }
+  }
+}
+```
+\
+
+In order to combine correlation estimates via Rubin's Rules we first have to apply Fisher-Transformation for Correlation to z-Score as correlations are not normally distributed and then transform the values back to correlation coefficients. https://dx.doi.org/10.1186%2F1471-2288-9-57
+
+```{r dichotome korrelationen pooling, fig.width=11, fig.height=11}
+# apply Fisher-Transformation
+cor_di_fisherGS <- FisherZ(cor_diGS)
+cor_di_fisherGY <- FisherZ(cor_diGY)
+
+# combine estimates 
+cor_di_fisherGS <- cor_di_fisherGS %>%
+                      summarise_all(mean)
+cor_di_fisherGY <- cor_di_fisherGY %>%
+                      summarise_all(mean)
+
+# transform back to correlation coefficients
+cor_diGS <- FisherZInv(cor_di_fisherGS)
+cor_diGY <- FisherZInv(cor_di_fisherGY)
+
+# pivot into long data format, for later joining
+cor_diGS_l <- pivot_longer(cor_diGS, names_to = "Korrelation", values_to = "rGS", cols = 1:28) 
+cor_diGY_l <- pivot_longer(cor_diGY, names_to = "Korrelation", values_to = "rGY", cols = 1:28) 
+cor_di <- full_join(cor_diGS_l, cor_diGY_l, by = "Korrelation")
+
+names_di <- cor_di$Korrelation
+corGSGY_nondi <- corGSGY %>%
+                    dplyr::filter(!Korrelation %in% names_di)
+
+cor_values <- bind_rows(corGSGY_nondi, cor_di)
+```
+\
+
+Bitte mit der Maus über die einzelnen Punkte fahren, um zu erfahren um welche Korrelation es sich handelt.
+
+```{r korrelationen, fig.width=11, fig.height=11}
+
 axis_def <- list(range = c(-.4, 1),
                  dtick = 0.25,
                  automargin = TRUE)
@@ -2829,7 +3013,7 @@ plot_ly() %>%
     hoverinfo = ''
     ) %>%
   add_trace(
-    data = corGSGY, 
+    data = cor_values, 
     x = ~rGS, 
     y = ~rGY,
     type = "scatter", 
@@ -2853,7 +3037,7 @@ plot_ly() %>%
                   y = 1))
 
 
-pander(corGSGY)
+pander(cor_values)
 
 
 miceadds::micombine.cor(imp45, variables = c("beg_hw_min", "dau_hw_min"))
@@ -2861,144 +3045,102 @@ miceadds::micombine.cor(imp90, variables = c("beg_hw_min", "dau_hw_min"))
 ```
 
 
+## Effektstärken der Klassenstufe
 
-```{r dichotome korrelationen 1, fig.width=11, fig.height=11}
-library(DescTools)
-cor_var <- c("lh_ank", "lh_auf", "lh_nen", "lh_sch", "lh_erl", "lh_wfr", "lh_wno", "lh_ano")
-cor_datGS <- data.frame()
-cor_datGY <- data.frame()
+zur Vergleichbarkeit mit der Schulart, wurden die Effektmaße als Korrelation berechnet.
 
-# Grundschule
-for (n_i in 1:i) {                # über alle Imputationen
-  for (cor_1 in 1:7) {            # Kombinationen aller dichotomen
-    for (cor_2 in (cor_1+1):8) {  # Variablen erstellen
-      tmp <- eval(parse(text = paste0("YuleQ(", 
-                         "mice::complete(impGS, ", n_i, ")$", cor_var[cor_1],
-                         ", ",
-                         "mice::complete(impGS, ", n_i, ")$", cor_var[cor_2],
-                         ")",
-                         sep="")    # für jeden vollständigen Datensatz
-                        )           # mit einer bestimmten Var-Kombination
-                  )                 # YulesQ berechnen
-      
-      # Wert in Datensatz speichern
-      cor_datGS[n_i, paste0(cor_var[cor_1], "-", cor_var[cor_2])] <- tmp
-      rm(tmp)
-    }
-  }
-}
-
-# Gymnasium
-for (n_i in 1:i) {                # über alle Imputationen
-  for (cor_1 in 1:7) {            # Kombinationen aller dichotomen
-    for (cor_2 in (cor_1+1):8) {  # Variablen erstellen
-      tmp <- eval(parse(text = paste0("YuleQ(", 
-                         "mice::complete(impGY, ", n_i, ")$", cor_var[cor_1],
-                         ", ",
-                         "mice::complete(impGY, ", n_i, ")$", cor_var[cor_2],
-                         ")",
-                         sep="")    # für jeden vollständigen Datensatz
-                        )           # mit einer bestimmten Var-Kombination
-                  )                 # YulesQ berechnen
-      
-      # Wert in Datensatz speichern
-      cor_datGY[n_i, paste0(cor_var[cor_1], "-", cor_var[cor_2])] <- tmp
-      rm(tmp)
-    }
-  }
-}
-```
 \
 
-In order to combine correlation estimates via Rubin's Rules we first have to apply Fisher-Transformation for Correlation to z-Score as correlations are not normally distributed and then transform the values back to correlation coefficients.
+In Abhängigkeit von der Kombination der Skalenniveaus beider Variablen, werden entsprechende Korrelationen berechnet:
 
-```{r dichotome korrelationen 2, fig.width=11, fig.height=11}
-# apply Fisher-Transformation
-cor_dat_fisherGS <- FisherZ(cor_datGS)
-cor_dat_fisherGY <- FisherZ(cor_datGY)
+* Beide Variablen metrisch: Pearson-Korrelation
+* Eine Variable metrisch, eine Variable dichotom: Punkt-Biseriale-Korrelation (in diesem Fall mathematisch äquivalent zu Pearson)
 
-# combine estimates 
-cor_dat_fisherGS <- cor_dat_fisherGS %>%
-                      summarise_all(mean)
-cor_dat_fisherGY <- cor_dat_fisherGY %>%
-                      summarise_all(mean)
+```{r effektstärken klassenstufe}
+# correlation of Klassenstufe with all excepct time-related variables
+eff_klass_a <- miceadds::micombine.cor(imp, 
+                        variables = c("Klassenstufe", 
+                                      "lh_ank", "lh_auf", "lh_nen", 
+                                      "lh_sch", "lh_erl", "lh_wfr", 
+                                      "lh_wno", "lh_ano", "lh_bfr", 
+                                      "sh_auf", "sh_mel", "sh_fra", 
+                                      "sh_not"))
+# filtering out unnecessary information
+eff_klass_a <- eff_klass_a %>%
+                dplyr::filter(variable1 == "Klassenstufe") %>%
+                dplyr::select(variable1, variable2, r) %>%
+                mutate(r = round(r, digits = 3))
 
-# transform back to correlation coefficients
-cor_datGS <- FisherZInv(cor_dat_fisherGS)
-cor_datGY <- FisherZInv(cor_dat_fisherGY)
+# correlation of Klassenstufe with all time-related variables
+# 45min hours
+eff_klass45 <- miceadds::micombine.cor(imp45, 
+                        variables = c("Klassenstufe", 
+                                      "beg_hw_min",
+                                      "dau_hw_min"))
 
-# pivot into long data format, for later joining
-cor_datGS_l <- pivot_longer(cor_datGS, names_to = "Korrelation", values_to = "rGS", cols = 1:28) 
-cor_datGY_l <- pivot_longer(cor_datGY, names_to = "Korrelation", values_to = "rGY", cols = 1:28) 
+# filtering out unnecessary information
+eff_klass45 <- eff_klass45 %>%
+                dplyr::filter(variable1 == "Klassenstufe") %>%
+                dplyr::select(variable1, variable2, r) %>%
+                mutate(r = round(r, digits = 3))
+
+# 90min hours
+eff_klass90 <- miceadds::micombine.cor(imp90, 
+                        variables = c("Klassenstufe", 
+                                      "beg_hw_min",
+                                      "dau_hw_min"))
+
+# filtering out unnecessary information
+eff_klass90 <- eff_klass90 %>%
+                dplyr::filter(variable1 == "Klassenstufe") %>%
+                dplyr::select(variable1, variable2, r) %>%
+                mutate(r = round(r, digits = 3))
+
+eff_klass <- bind_rows(eff_klass_a, eff_klass45, eff_klass90)
+pander(eff_klass)
+```
+
+## Effektstärken der Schulart
+
+Die Effekttärken der Schulart auf _dichotome_ Variablen wurden bereits jeweils im Zuger der bayesianischen Hypothesentets (anhand des Pearson's $\varphi$) berechnet, da hier ebenfalls Schleifen programmiert werden mussten. An dieser Stelle werden nun zusätzlich die Effektstärken auf die _metrischen_ Variablen anhand der Punkt-Biserialen Korrelation $r_{pb}$ nach Pearson brechnet. Die Variable "Schulart" wurde hierfür in einer nummerische Variable umcodiert, wobei Grundschule = 0 und Gymnasium = 1.
+
+```{r effektstärken schulart}
+# correlation of Schulart with all matric variables excepct time-related variables
+eff_schul_a <- miceadds::micombine.cor(imp, 
+                        variables = c("Schulart_n", "lh_bfr", "sh_auf", 
+                                      "sh_mel", "sh_fra", "sh_not"))
+# filtering out unnecessary information
+eff_schul_a <- eff_schul_a %>%
+                dplyr::filter(variable1 == "Schulart_n") %>%
+                dplyr::select(variable1, variable2, r) %>%
+                mutate(r = round(r, digits = 3))
 
 
+# correlation of Schulart with all time-related variables
+# 45min hours
+eff_schul45 <- miceadds::micombine.cor(imp45, 
+                        variables = c("Schulart_n", 
+                                      "beg_hw_min",
+                                      "dau_hw_min"))
 
-# p_data_dm <- p_data %>%
-#   dplyr::select(lh_ank, lh_auf, lh_sch, lh_erl, lh_wfr, lh_wno, lh_ano)
-# dicho_r_m <- data.frame()
-# 
-# # Correlation matrix & visualization
-# for(i in 1:7) {
-#   for(j in 1:7){
-#     # print(c(i,j))
-#     tmp <- matrix(table(p_data_dm[,i], p_data_dm[,j]), 2, 2)
-#     dicho_r_m[j,i] <- Yule(tmp)                                   #Alternative phi
-#     dicho_r_m[i,j] <- Yule(tmp)                                   #Alternative phi
-#   }
-# }
-# 
-# names(dicho_r_m) <- c("lh_ank", "lh_auf", "lh_sch", "lh_erl", "lh_wfr", "lh_wno", "lh_ano")
-# row.names(dicho_r_m) <- c("lh_ank", "lh_auf", "lh_sch", "lh_erl", "lh_wfr", "lh_wno", "lh_ano")
-# # corrgram(dicho_r_m, type = "cor", lower.panel = "panel.pie", upper.panel = "panel.cor")
-# 
-# # GS vs. GYM
-# 
-# dicho_r_gs <- data.frame(cor_gs = NA, comb = NA)
-# dicho_r_gs <- dicho_r_gs[-1,]
-# 
-# p_data_dm_gs <- p_data %>%
-#   dplyr::filter(Schulart == "Grundschule") %>%
-#   dplyr::select(lh_ank, lh_auf, lh_sch, lh_erl, lh_wfr, lh_wno, lh_ano)
-# 
-# for(i in 1:6) {
-#   for(j in (1+i):7){
-#     tmp <- matrix(table(p_data_dm_gs[,i], p_data_dm_gs[,j]), 2, 2)
-#     tmp1 <-  data.frame()
-#     tmp1[1, "cor_gs"] <- Yule(tmp)
-#     tmp1[1, "comb"] <- paste(names(p_data_dm_gs[i]), "-", names(p_data_dm_gs[j]))
-#     dicho_r_gs <- rbind(dicho_r_gs, tmp1)
-#   }
-# }
-# 
-# 
-# 
-# 
-# dicho_r_gy <- data.frame(cor_gy = NA, comb = NA)
-# dicho_r_gy <- dicho_r_gy[-1,]
-# 
-# p_data_dm_gy <- p_data %>%
-#   dplyr::filter(Schulart == "Gymnasium") %>%
-#   dplyr::select(lh_ank, lh_auf, lh_sch, lh_erl, lh_wfr, lh_wno, lh_ano)
-# 
-# for(i in 1:6) {
-#   for(j in (1+i):7){
-#     tmp <- matrix(table(p_data_dm_gy[,i], p_data_dm_gy[,j]), 2, 2)
-#     tmp1 <-  data.frame()
-#     tmp1[1, "cor_gy"] <- Yule(tmp)
-#     tmp1[1, "comb"] <- paste(names(p_data_dm_gy[i]), "-", names(p_data_dm_gy[j]))
-#     dicho_r_gy <- rbind(dicho_r_gy, tmp1)
-#   }
-# }
-# 
-# dicho_r <- full_join(dicho_r_gs, dicho_r_gy, by="comb")
-# 
-# 
-# 
-# ggplot(dicho_r, aes(x=cor_gs, y=cor_gy, color = comb, label = comb)) +
-#   geom_point() +
-#   scale_x_continuous(limits = c(0,1)) +
-#   scale_y_continuous(limits = c(0,1)) +
-#   geom_abline(intercept = 0, slope = 1) +
-#   geom_label_repel() +
-#   theme(legend.position = "none")
+# filtering out unnecessary information
+eff_schul45 <- eff_schul45 %>%
+                dplyr::filter(variable1 == "Schulart_n") %>%
+                dplyr::select(variable1, variable2, r) %>%
+                mutate(r = round(r, digits = 3))
+
+# 90min hours
+eff_schul90 <- miceadds::micombine.cor(imp90, 
+                        variables = c("Schulart_n", 
+                                      "beg_hw_min",
+                                      "dau_hw_min"))
+
+# filtering out unnecessary information
+eff_schul90 <- eff_schul90 %>%
+                dplyr::filter(variable1 == "Schulart_n") %>%
+                dplyr::select(variable1, variable2, r) %>%
+                mutate(r = round(r, digits = 3))
+
+eff_klass <- bind_rows(eff_klass_a, eff_klass45, eff_klass90)
+pander(eff_klass)
 ```
