@@ -6,15 +6,25 @@ author:
   - name: Jürgen Schneider 
     url: https://uni-tuebingen.de/de/28915
     affiliation: Universität Tübingen
+    email: juergen.schneider@uni-tuebingen.de
   - name: Britta Kohler
+    affiliation: Universität Tübingen
+    email: britta.kohler@uni-tuebingen.de
 date: "`r Sys.Date()`"
 output: 
-  radix::radix_article:
+  html_document:   # used to be "radix::radix_article:", but can't do code_folding
     toc: yes
     toc_depth: 2
+    code_folding: hide
+    theme: cosmo
+    highlight: espresso
 ---
 
-```{r setup, echo=T}
+# Systemeigenschaften
+
+__Verwendete Pakete__
+
+```{r setup, echo=T, message=F, warning=F, comment=F}
 knitr::opts_chunk$set(echo = T, message = F, warning = F)
 library(rio)
 library(tidyverse)
@@ -33,10 +43,17 @@ library(hrbrthemes)
 library(MASS)
 library(bain)
 library(plotly)
+library(DescTools)
+```
+
+__R-Version__
+
+```{r rversion, echo=T}
 R.Version()
 ```
 
 # Datenvorbereitung
+
 
 ```{r import, include=T}
 # import
@@ -44,13 +61,15 @@ gym <- rio::import("data/gym.xls")
 gs <- rio::import("data/gs.xls")
 ```
 
+Wir können die Daten aktuell leider nicht teilen. Bei konkreten Anfragen, bitte Mail an Autor*innen (klick auf Namen zu Dokumentbeginn).
+
 ## Grundschule
 
 ```{r wrangling gs}
 
 gs <- gs %>%
-  dplyr::filter(`Laufende\nNummer` != "Beispiel") %>%
-  mutate(id = as.numeric(`Laufende\nNummer`))
+  dplyr::filter(`Laufende\nNummer` != "Beispiel") %>% # Beispielcodierungen löschen
+  mutate(id = as.numeric(`Laufende\nNummer`))         # Laufende Nummer als id
 
 ## Korrektur von Daten auf Basis der Abweichungen
  # Falschberechnungen der `Min Beginn seit Std-Anfang` (id == 189, 248, 329) werden übersprungen
@@ -102,8 +121,9 @@ gs <- gs %>%
 
 ```{r wrangling gym}
 gym <- gym %>%
-  mutate(id = as.numeric(`Laufende\nNummer`))
+  mutate(id = as.numeric(`Laufende\nNummer`))   # Laufende Nummer als id
 
+# Korrekturen
 gym[which(gym$id == 141 |
           gym$id == 148 |
           gym$id == 149 |
@@ -161,31 +181,43 @@ p_data <- p_data %>%
 
 
 # Imputation der fehlenden Daten
-```{r prozentuale haeufigkeiten}
-### SKALENNIVEAUS ###
-  # lh_ank: dichotom [0,1]
-  # lh_auf: dichotom [0,1]
-  # lh_nen: dichotom [0,1]
-  # lh_sch: dichotom [0,1]
-  # lh_erl: dichotom [0,1]
-  # lh_wfr: dichotom [0,1]
-  # lh_bfr: metrisch, absolutskaliert, schief
-  # lh_wno: dichotom [0,1]
-  # lh_ano: dichotom [0,1]
-  # sh_auf: ordinalskaliert [1:5]
-  # sh_mel: metrisch, absolutskaliert, schief
-  # sh_fra: metrisch, absolutskaliert, schief
-  # sh_not: metrisch, intervllskaliert, bimodal
+
+__Skalenniveaus__
+
+* lh_ank: dichotom [0,1]
+* lh_auf: dichotom [0,1]
+* lh_nen: dichotom [0,1]
+* lh_sch: dichotom [0,1]
+* lh_erl: dichotom [0,1]
+* lh_wfr: dichotom [0,1]
+* lh_bfr: metrisch, absolutskaliert
+* lh_wno: dichotom [0,1]
+* lh_ano: dichotom [0,1]
+* sh_auf: ordinalskaliert [1:5]
+* sh_mel: metrisch, absolutskaliert
+* sh_fra: metrisch, absolutskaliert
+* sh_not: metrisch, intervllskaliert
+
+__fehlende Daten im Datensatz__
+
+```{r imput1}
+vis_miss(p_data)
 ```
 
-```{r imput}
-vis_miss(p_data)
+__Kombinationen der fehlenden Daten__
+
+```{r imput2}
 gg_miss_upset(p_data)
 ```
 
-## Choices
+## Entscheidungen
+
+bei der Imputation
 
 __imputation model__
+
+für jede Variable
+
 ```{r model}
 p_data$Schulart <- as.factor(p_data$Schulart)
 p_data$Schulart_n <- ifelse(p_data$Schulart == "Grundschule", 0, 1)
@@ -208,6 +240,7 @@ pander(model_tab)
 
 ```
 
+Defining methods.
 
 ```{r def model}
 # Defining methods
@@ -225,10 +258,15 @@ m <- 1000
 ```
 
 __selection of predictors__
+
+Auf Multikollinearität überprüfen:
+
 ```{r pred}
 # cor(y = p_data[,-4], x = !is.na(p_data[,-4]), use = "pair")
 corrgram(p_data, lower.panel = "panel.pie", upper.panel = "panel.cor")
 ```
+
+Drei Variablen werden als Prädiktoren ausgeschlossen: `stunde`, `lh_bfr`, `Schulart_n`.
 
 ```{r pred spec}
 # set predictor specifications
@@ -247,13 +285,12 @@ pred[,"Schulart_n"] <- 0 # Schulart_n is just numeric version of Schulart
 
 
 __variables that are function of other variables__  
-None.  
+`Schulart_n` ist eine nummerische Version von `Schulart`, siehe Imputationsmthode.  
 
 __which variables to impute__  
-All.  
+Alle.  
 
 __number of iterations__  
-
 20  
 
 ```{r maxit}
@@ -276,10 +313,10 @@ imp <- mice(p_data,
 
 ## check imputation
 
-__plausible values__
+__plausible values__  
+Dieser Code wird je Imputation (1000) einen Plot generieren. Falls interessiert, kann dies auskommentiert werden, ansonsten spare ich den Platz.
+
 ```{r plaus}
-## will produce one plot for each imputation (1000) on each variable
-## uncomment if interested, otherwise I spare the space
 # lattice::stripplot(imp, pch = 20, cex = 1.2)
 ```
 All values seem plausible.
@@ -504,10 +541,12 @@ Hier zeigen sich bei einem $N=510$ und einem angenommenen Cohen's $d=.35$ ebenfa
 
 # Zeitpunkt der HA-Vergabe
 
-__Deskriptive Daten__
+__Deskriptive Daten Einzelstunden__
 
-```{r deskriptiv zeit}
-pander::panderOptions('digits', 3)
+```{r deskriptiv zeit 45}
+pander::panderOptions('digits', 10)
+pander::panderOptions('round', 3)
+pander::panderOptions('keep.trailing.zeros', TRUE)
 ## 45 Minuten Stunden ################ #
 # alle Schulstunden mit Länge 45min herausfiltern
 schulart45 <- p_data %>% 
@@ -531,9 +570,16 @@ dens_45gy <- schulart45 %>%      # filter only measured cases
 dens_45gy <- density(dens_45gy$beg_hw_min)   # get density curve
 paste("Modus der Hausaufgabenvergabe in 45min Stunden Grundschule =", round(dens_45gs$x[which.max(dens_45gs$y)], 1))
 paste("Modus der Hausaufgabenvergabe in 45min Stunden Gymnasium =", round(dens_45gy$x[which.max(dens_45gy$y)], 1))
+```
 
+\
 
+__Deskriptive Daten Doppelstunden__
 
+```{r deskriptiv zeit 90}
+pander::panderOptions('digits', 10)
+pander::panderOptions('round', 3)
+pander::panderOptions('keep.trailing.zeros', TRUE)
 ## 90 Minuten Stunden ################ #
 # alle Schulstunden mit Länge 45min herausfiltern
 schulart90 <- p_data %>% 
@@ -562,6 +608,7 @@ paste("Modus der Hausaufgabenvergabe in 90min Stunden Gymnasium =", round(dens_9
 
 ## 45min Stunden  
 
+### Prädiktor Schulart
 
 ```{r plots zeitpunkt 45, cache=F}
 #### IMPUTATION #### #
@@ -674,9 +721,50 @@ ggplot(p_data%>%dplyr::filter(stunde == 45), aes(x="", y = beg_hw_min, fill = Sc
 
 ```
 
-## 90min Stunden  
+### Prädiktor Klassenstufe
 
-Basierend auf untersuchten (nicht-fehlenden) Daten.  
+Aufgrund fehlender Standards im pooling von Bayes Faktoren (BF), berechnen wir für jeden Datensatz einen Bayes Faktor und berichten anschließend deren Verteilung.
+
+```{r zpkt HA 45 Klassenstufe}
+# Compute density of BFs
+kl_results <- data.frame()
+
+for (i in 1:m) {
+  fit <- correlationBF(y = mice::complete(imp45, i)$beg_hw_min,    # correlation
+                       x = mice::complete(imp45, i)$Klassenstufe)
+  kl_results[i,"beg_hw_min-Klassenstufe"] <- extractBF(fit)$bf    # save BF in data frame
+  
+  rm(fit)
+}
+
+# show summary of BFs
+summary(kl_results[,"beg_hw_min-Klassenstufe"])  
+
+# plot BFs distribution
+ggplot(kl_results, aes(x = `beg_hw_min-Klassenstufe`)) +
+                geom_density(alpha = .3, fill = "#b4a069", color = NA) +
+                geom_jitter(aes(x = `beg_hw_min-Klassenstufe`, y=""), 
+                            height = 1, width = 0, alpha = .3, 
+                            size = 2.5, fill = "#b4a069", color = "#b4a069") +
+                geom_vline(xintercept = (1/3), color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                geom_vline(xintercept = 3, color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                scale_x_continuous(expand = c(0, 0), trans = 'log10') +
+                scale_y_discrete(expand = c(0, 0)) +
+                ylab("% Häufigkeit") +
+                xlab("BF [log10]") +
+                theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7"))
+```
+
+## 90min Stunden 
+
+### Prädiktor Schulart
 
 ```{r plots zeitpunkt 90, cache=F}
 #### IMPUTATION #### #
@@ -784,10 +872,52 @@ ggplot(p_data%>%dplyr::filter(stunde == 90),
                 coord_flip()
 ```
 
+### Prädiktor Klassenstufe
+
+Aufgrund fehlender Standards im pooling von Bayes Faktoren (BF), berechnen wir für jeden Datensatz einen Bayes Faktor und berichten anschließend deren Verteilung.
+
+```{r zpkt HA 90 Klassenstufe}
+# Compute density of BFs
+kl_results <- data.frame()
+
+for (i in 1:m) {
+  fit <- correlationBF(y = mice::complete(imp90, i)$beg_hw_min,    # correlation
+                       x = mice::complete(imp90, i)$Klassenstufe)
+  kl_results[i,"beg_hw_min-Klassenstufe"] <- extractBF(fit)$bf    # save BF in data frame
+  
+  rm(fit)
+}
+
+# show summary of BFs
+summary(kl_results[,"beg_hw_min-Klassenstufe"])  
+
+# plot BFs distribution
+ggplot(kl_results, aes(x = `beg_hw_min-Klassenstufe`)) +
+                geom_density(alpha = .3, fill = "#b4a069", color = NA) +
+                geom_jitter(aes(x = `beg_hw_min-Klassenstufe`, y=""), 
+                            height = 1, width = 0, alpha = .3, 
+                            size = 2.5, fill = "#b4a069", color = "#b4a069") +
+                geom_vline(xintercept = (1/3), color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                geom_vline(xintercept = 3, color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                scale_x_continuous(expand = c(0, 0), trans = 'log10') +
+                scale_y_discrete(expand = c(0, 0)) +
+                ylab("% Häufigkeit") +
+                xlab("BF [log10]") +
+                theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7"))
+```
 
 # Zeitbedarf HA  
 
 ## 45min Stunden
+
+### Prädiktor Schulart
 
 ```{r plots zeitbedarf 45}
 
@@ -879,7 +1009,51 @@ ggplot(p_data%>%dplyr::filter(stunde == 45), aes(x=Schulart, y = dau_hw_min, fil
 
 ```
 
+### Prädiktor Klassenstufe
+
+Aufgrund fehlender Standards im pooling von Bayes Faktoren (BF), berechnen wir für jeden Datensatz einen Bayes Faktor und berichten anschließend deren Verteilung.
+
+```{r dau HA 45 Klassenstufe}
+# Compute density of BFs
+kl_results <- data.frame()
+
+for (i in 1:m) {
+  fit <- correlationBF(y = mice::complete(imp45, i)$dau_hw_min,    # correlation
+                       x = mice::complete(imp45, i)$Klassenstufe)
+  kl_results[i,"dau_hw_min-Klassenstufe"] <- extractBF(fit)$bf    # save BF in data frame
+  
+  rm(fit)
+}
+
+# show summary of BFs
+summary(kl_results[,"dau_hw_min-Klassenstufe"])  
+
+# plot BFs distribution
+ggplot(kl_results, aes(x = `dau_hw_min-Klassenstufe`)) +
+                geom_density(alpha = .3, fill = "#b4a069", color = NA) +
+                geom_jitter(aes(x = `dau_hw_min-Klassenstufe`, y=""), 
+                            height = 1, width = 0, alpha = .3, 
+                            size = 2.5, fill = "#b4a069", color = "#b4a069") +
+                geom_vline(xintercept = (1/3), color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                geom_vline(xintercept = 3, color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                scale_x_continuous(expand = c(0, 0), trans = 'log10') +
+                scale_y_discrete(expand = c(0, 0)) +
+                ylab("% Häufigkeit") +
+                xlab("BF [log10]") +
+                theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7"))
+```
+
+
 ## 90min Stunden
+
+### Prädiktor Schulart
 
 ```{r plots zeitbedarf 90}
 
@@ -969,9 +1143,51 @@ ggplot(p_data%>%dplyr::filter(stunde == 90), aes(x=Schulart, y = dau_hw_min, fil
 ```
 
 
+### Prädiktor Klassenstufe
+
+Aufgrund fehlender Standards im pooling von Bayes Faktoren (BF), berechnen wir für jeden Datensatz einen Bayes Faktor und berichten anschließend deren Verteilung.
+
+```{r dau HA 90 Klassenstufe}
+# Compute density of BFs
+kl_results <- data.frame()
+
+for (i in 1:m) {
+  fit <- correlationBF(y = mice::complete(imp90, i)$dau_hw_min,    # correlation
+                       x = mice::complete(imp90, i)$Klassenstufe)
+  kl_results[i,"dau_hw_min-Klassenstufe"] <- extractBF(fit)$bf    # save BF in data frame
+  
+  rm(fit)
+}
+
+# show summary of BFs
+summary(kl_results[,"dau_hw_min-Klassenstufe"])  
+
+# plot BFs distribution
+ggplot(kl_results, aes(x = `dau_hw_min-Klassenstufe`)) +
+                geom_density(alpha = .3, fill = "#b4a069", color = NA) +
+                geom_jitter(aes(x = `dau_hw_min-Klassenstufe`, y=""), 
+                            height = 1, width = 0, alpha = .3, 
+                            size = 2.5, fill = "#b4a069", color = "#b4a069") +
+                geom_vline(xintercept = (1/3), color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                geom_vline(xintercept = 3, color = "red", alpha = .4, 
+                           size = 2, linetype = "dashed") +
+                scale_x_continuous(expand = c(0, 0), trans = 'log10') +
+                scale_y_discrete(expand = c(0, 0)) +
+                ylab("% Häufigkeit") +
+                xlab("BF [log10]") +
+                theme_light() +
+                theme(axis.line = element_line(colour = "#696f71"),
+                      panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      panel.border = element_blank(),
+                      panel.background = element_rect(fill = "#f6f7f7"))
+```
+
 # Häufigkeiten der Lehrpersonen-/SuS-Handlungen
 
-__Deskriptive Daten__
+
+## Deskriptive Daten aller Merkmale
 
 ```{r deskriptiv Angebot}
 descriptives <-  p_data %>%
@@ -989,6 +1205,8 @@ pander::pander(descriptives)
 ## L kündigt HA an
 
 ### Prädiktor Schulart
+
+Aufgrund fehlender Standards im pooling von Bayes Faktoren (BF), berechnen wir für jeden Datensatz einen Bayes Faktor und berichten anschließend deren Verteilung.
 
 ```{r ank BF}
 # Compute density of BFs
@@ -1047,9 +1265,11 @@ cor_results_phi_z <- mean(cor_results_phi_z)
 phi <- FisherZInv(cor_results_phi_z)
 ```
 
-Effektstärke: $\varphi$= `r round(phi, digits = 3)`
+__Effektstärke:__ $\varphi$= `r round(phi, digits = 3)`
 
 ### Prädiktor Klassenstufe
+
+Aufgrund fehlender Standards im pooling von Bayes Faktoren (BF), berechnen wir für jeden Datensatz einen Bayes Faktor und berichten anschließend deren Verteilung.
 
 ```{r ank Klassenstufe}
 # Compute density of BFs
@@ -1136,6 +1356,8 @@ ggplot(lh_ank_p, aes(x = Klassenstufe, y = lh_ank, color = Schulart)) +
 
 ### Prädiktor Schulart
 
+Aufgrund fehlender Standards im pooling von Bayes Faktoren (BF), berechnen wir für jeden Datensatz einen Bayes Faktor und berichten anschließend deren Verteilung.
+
 ```{r haeufigkeiten auf}
 # Compute density of BFs
 for (i in 1:m) {
@@ -1182,9 +1404,11 @@ cor_results_phi_z <- mean(cor_results_phi_z)
 phi <- FisherZInv(cor_results_phi_z)
 ```
 
-Effektstärke: $\varphi$= `r round(phi, digits = 3)`
+__Effektstärke:__ $\varphi$= `r round(phi, digits = 3)`
 
 ### Prädiktor Klassenstufe
+
+Aufgrund fehlender Standards im pooling von Bayes Faktoren (BF), berechnen wir für jeden Datensatz einen Bayes Faktor und berichten anschließend deren Verteilung.
 
 ```{r auf Klassenstufe}
 # Compute density of BFs
@@ -1270,6 +1494,8 @@ ggplot(lh_auf_p, aes(x = Klassenstufe, y = lh_auf, color = Schulart)) +
 
 ### Prädiktor Schulart
 
+Aufgrund fehlender Standards im pooling von Bayes Faktoren (BF), berechnen wir für jeden Datensatz einen Bayes Faktor und berichten anschließend deren Verteilung.
+
 ```{r haeufigkeiten nen}
 # Compute density of BFs
 for (i in 1:m) {
@@ -1316,9 +1542,11 @@ cor_results_phi_z <- mean(cor_results_phi_z)
 phi <- FisherZInv(cor_results_phi_z)
 ```
 
-Effektstärke: $\varphi$= `r round(phi, digits = 3)`
+__Effektstärke:__ $\varphi$= `r round(phi, digits = 3)`
 
 ### Prädiktor Klassenstufe
+
+Aufgrund fehlender Standards im pooling von Bayes Faktoren (BF), berechnen wir für jeden Datensatz einen Bayes Faktor und berichten anschließend deren Verteilung.
 
 ```{r nen Klassenstufe}
 # Compute density of BFs
@@ -1404,6 +1632,8 @@ ggplot(lh_nen_p, aes(x = Klassenstufe, y = lh_nen, color = Schulart)) +
 
 ### Prädiktor Schulart
 
+Aufgrund fehlender Standards im pooling von Bayes Faktoren (BF), berechnen wir für jeden Datensatz einen Bayes Faktor und berichten anschließend deren Verteilung.
+
 ```{r haeufigkeiten sch}
 # Compute density of BFs
 for (i in 1:m) {
@@ -1451,9 +1681,11 @@ cor_results_phi_z <- mean(cor_results_phi_z)
 phi <- FisherZInv(cor_results_phi_z)
 ```
 
-Effektstärke: $\varphi$= `r round(phi, digits = 3)`
+__Effektstärke:__ $\varphi$= `r round(phi, digits = 3)`
 
 ### Prädiktor Klassenstufe
+
+Aufgrund fehlender Standards im pooling von Bayes Faktoren (BF), berechnen wir für jeden Datensatz einen Bayes Faktor und berichten anschließend deren Verteilung.
 
 ```{r sch Klassenstufe}
 # Compute density of BFs
@@ -1539,6 +1771,8 @@ ggplot(lh_sch_p, aes(x = Klassenstufe, y = lh_sch, color = Schulart)) +
 
 ### Prädiktor Schulart
 
+Aufgrund fehlender Standards im pooling von Bayes Faktoren (BF), berechnen wir für jeden Datensatz einen Bayes Faktor und berichten anschließend deren Verteilung.
+
 ```{r haeufigkeiten erl}
 # Compute density of BFs
 for (i in 1:m) {
@@ -1585,9 +1819,11 @@ cor_results_phi_z <- mean(cor_results_phi_z)
 phi <- FisherZInv(cor_results_phi_z)
 ```
 
-Effektstärke: $\varphi$= `r round(phi, digits = 3)`
+__Effektstärke:__ $\varphi$= `r round(phi, digits = 3)`
 
 ### Prädiktor Klassenstufe
+
+Aufgrund fehlender Standards im pooling von Bayes Faktoren (BF), berechnen wir für jeden Datensatz einen Bayes Faktor und berichten anschließend deren Verteilung.
 
 ```{r erl Klassenstufe}
 # Compute density of BFs
@@ -1672,6 +1908,8 @@ ggplot(lh_erl_p, aes(x = Klassenstufe, y = lh_erl, color = Schulart)) +
 
 ### Prädiktor Schulart
 
+Aufgrund fehlender Standards im pooling von Bayes Faktoren (BF), berechnen wir für jeden Datensatz einen Bayes Faktor und berichten anschließend deren Verteilung.
+
 ```{r haeufigkeiten wfr}
 # Compute density of BFs
 for (i in 1:m) {
@@ -1719,9 +1957,11 @@ cor_results_phi_z <- mean(cor_results_phi_z)
 phi <- FisherZInv(cor_results_phi_z)
 ```
 
-Effektstärke: $\varphi$= `r round(phi, digits = 3)`
+__Effektstärke:__ $\varphi$= `r round(phi, digits = 3)`
 
 ### Prädiktor Klassenstufe
+
+Aufgrund fehlender Standards im pooling von Bayes Faktoren (BF), berechnen wir für jeden Datensatz einen Bayes Faktor und berichten anschließend deren Verteilung.
 
 ```{r wfr Klassenstufe}
 # Compute density of BFs
@@ -1806,6 +2046,8 @@ ggplot(lh_wfr_p, aes(x = Klassenstufe, y = lh_wfr, color = Schulart)) +
 
 ### Prädiktor Schulart
 
+Aufgrund fehlender Standards im pooling von Bayes Faktoren (BF), berechnen wir für jeden Datensatz einen Bayes Faktor und berichten anschließend deren Verteilung.
+
 ```{r haeufigkeiten wno}
 # Compute density of BFs
 for (i in 1:m) {
@@ -1852,9 +2094,11 @@ cor_results_phi_z <- mean(cor_results_phi_z)
 phi <- FisherZInv(cor_results_phi_z)
 ```
 
-Effektstärke: $\varphi$= `r round(phi, digits = 3)`
+__Effektstärke:__ $\varphi$= `r round(phi, digits = 3)`
 
 ### Prädiktor Klassenstufe
+
+Aufgrund fehlender Standards im pooling von Bayes Faktoren (BF), berechnen wir für jeden Datensatz einen Bayes Faktor und berichten anschließend deren Verteilung.
 
 ```{r wno Klassenstufe}
 # Compute density of BFs
@@ -1939,6 +2183,8 @@ ggplot(lh_wno_p, aes(x = Klassenstufe, y = lh_wno, color = Schulart)) +
 
 ### Prädiktor Schulart
 
+Aufgrund fehlender Standards im pooling von Bayes Faktoren (BF), berechnen wir für jeden Datensatz einen Bayes Faktor und berichten anschließend deren Verteilung.
+
 ```{r haeufigkeiten ano}
 # Compute density of BFs
 for (i in 1:m) {
@@ -1985,9 +2231,11 @@ cor_results_phi_z <- mean(cor_results_phi_z)
 phi <- FisherZInv(cor_results_phi_z)
 ```
 
-Effektstärke: $\varphi$= `r round(phi, digits = 3)`
+__Effektstärke:__ $\varphi$= `r round(phi, digits = 3)`
 
 ### Prädiktor Klassenstufe
+
+Aufgrund fehlender Standards im pooling von Bayes Faktoren (BF), berechnen wir für jeden Datensatz einen Bayes Faktor und berichten anschließend deren Verteilung.
 
 ```{r ano Klassenstufe}
 # Compute density of BFs
@@ -2143,6 +2391,8 @@ print(bf_hyp$BFmatrix)
 
 ### Prädiktor Klassenstufe
 
+Aufgrund fehlender Standards im pooling von Bayes Faktoren (BF), berechnen wir für jeden Datensatz einen Bayes Faktor und berichten anschließend deren Verteilung.
+
 ```{r bfr Klassenstufe}
 # Compute density of BFs
 kl_results <- data.frame()
@@ -2294,6 +2544,8 @@ print(bf_hyp$BFmatrix)
 
 ### Prädiktor Klassenstufe
 
+Aufgrund fehlender Standards im pooling von Bayes Faktoren (BF), berechnen wir für jeden Datensatz einen Bayes Faktor und berichten anschließend deren Verteilung.
+
 ```{r sh_auf Klassenstufe}
 # Compute density of BFs
 kl_results <- data.frame()
@@ -2442,6 +2694,8 @@ print(bf_hyp$BFmatrix)
 ```
 
 ### Prädiktor Klassenstufe
+
+Aufgrund fehlender Standards im pooling von Bayes Faktoren (BF), berechnen wir für jeden Datensatz einen Bayes Faktor und berichten anschließend deren Verteilung.
 
 ```{r sh_mel Klassenstufe}
 # Compute density of BFs
@@ -2593,6 +2847,8 @@ print(bf_hyp$BFmatrix)
 
 ### Prädiktor Klassenstufe
 
+Aufgrund fehlender Standards im pooling von Bayes Faktoren (BF), berechnen wir für jeden Datensatz einen Bayes Faktor und berichten anschließend deren Verteilung.
+
 ```{r sh_fra Klassenstufe}
 # Compute density of BFs
 kl_results <- data.frame()
@@ -2743,6 +2999,8 @@ print(bf_hyp$BFmatrix)
 ```
 
 ### Prädiktor Klassenstufe
+
+Aufgrund fehlender Standards im pooling von Bayes Faktoren (BF), berechnen wir für jeden Datensatz einen Bayes Faktor und berichten anschließend deren Verteilung.
 
 ```{r sh_not Klassenstufe}
 # Compute density of BFs
@@ -2969,7 +3227,7 @@ cor_values <- bind_rows(corGSGY_nondi, cor_di)
 ```
 \
 
-Bitte mit der Maus über die einzelnen Punkte fahren, um zu erfahren um welche Korrelation es sich handelt.
+__Bitte mit der Maus über die einzelnen Punkte fahren, um zu erfahren um welche Korrelation es sich handelt.__
 
 ```{r korrelationen, fig.width=11, fig.height=11}
 
@@ -3036,14 +3294,32 @@ plot_ly() %>%
                   x = 0,
                   y = 1))
 
-
-pander(cor_values)
-
-
-miceadds::micombine.cor(imp45, variables = c("beg_hw_min", "dau_hw_min"))
-miceadds::micombine.cor(imp90, variables = c("beg_hw_min", "dau_hw_min"))
 ```
 
+__Genaue Werte der Korrelationen__
+
+```{r }
+pander(cor_values)
+```
+\
+
+__Korrelationen des Zeitpunkts und Dauer der Hausaufgabenvergabe__  
+über beide Schularten hinweg.
+
+```{r }
+cor45_hw <- miceadds::micombine.cor(imp45, variables = c("beg_hw_min", "dau_hw_min"))
+cor45_hw <- cor45_hw %>%
+    select(variable1, variable2, r)
+
+cor90_hw <- miceadds::micombine.cor(imp90, variables = c("beg_hw_min", "dau_hw_min"))
+cor90_hw <- cor90_hw %>%
+    select(variable1, variable2, r)
+
+cor_hw <- bind_rows(cor45_hw[1,], cor90_hw[1,])
+cor_hw$Stundenlaenge <- c("Einzelstunde", "Doppelstunde")
+cor_hw <- cor_hw[,c("Stundenlaenge", "variable1", "variable2", "r")]
+pander(cor_hw)
+```
 
 ## Effektstärken der Klassenstufe
 
@@ -3141,6 +3417,6 @@ eff_schul90 <- eff_schul90 %>%
                 dplyr::select(variable1, variable2, r) %>%
                 mutate(r = round(r, digits = 3))
 
-eff_klass <- bind_rows(eff_klass_a, eff_klass45, eff_klass90)
-pander(eff_klass)
+eff_schular <- bind_rows(eff_schul_a, eff_schul45, eff_schul90)
+pander(eff_schular)
 ```
