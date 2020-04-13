@@ -13,7 +13,7 @@ ggplot(p_data%>%dplyr::filter(stunde == 45), aes(x="", y = beg_hw_min, fill = Sc
     scale_x_discrete(expand = c(0, 0)) +
     ylab("Minuten seit geplantem Stundenbeginn bei Vergabe der HA") +
     xlab("Häufigkeit") +
-    ggtitle("45min Stunden") +
+    ggtitle("Einzelstunden") +
     theme_light() +
     theme(axis.line = element_line(colour = "#696f71"),
           panel.grid.major = element_blank(),
@@ -35,7 +35,7 @@ ggplot(p_data%>%dplyr::filter(stunde == 90), aes(x="", y = beg_hw_min, fill = Sc
     scale_x_discrete(expand = c(0, 0)) +
     ylab("Minuten seit geplantem Stundenbeginn bei Vergabe der HA") +
     xlab("") +
-    ggtitle("90min Stunden") +
+    ggtitle("Doppelstunden") +
     theme_light() +
     theme(axis.line = element_line(colour = "#696f71"),
           panel.grid.major = element_blank(),
@@ -57,7 +57,7 @@ ggplot(p_data%>%dplyr::filter(stunde == 45), aes(x="", y = dau_hw_min, fill = Sc
     scale_x_discrete(expand = c(0, 0)) +
     ylab("Dauer HA Vergabe [Min]") +
     xlab("Häufigkeit") +
-    ggtitle("45min Stunden") +
+    ggtitle("Einzelstunden") +
     theme_light() +
     theme(axis.line = element_line(colour = "#696f71"),
           panel.grid.major = element_blank(),
@@ -78,7 +78,7 @@ ggplot(p_data%>%dplyr::filter(stunde == 90), aes(x="", y = dau_hw_min, fill = Sc
     scale_x_discrete(expand = c(0, 0)) +
     ylab("Dauer HA Vergabe [Min]") +
     xlab("") +
-    ggtitle("90min Stunden") +
+    ggtitle("Doppelstunden") +
     theme_light() +
     theme(axis.line = element_line(colour = "#696f71"),
           panel.grid.major = element_blank(),
