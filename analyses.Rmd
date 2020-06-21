@@ -13,11 +13,15 @@ author:
 date: "`r Sys.Date()`"
 output: 
   html_document:   # used to be "radix::radix_article:", but can't do code_folding
-    toc: yes
+    toc: true
     toc_depth: 2
+    toc_float: true
     code_folding: hide
     theme: cosmo
     highlight: espresso
+css: www/style.css
+editor_options: 
+  chunk_output_type: console
 ---
 
 # Systemeigenschaften
@@ -52,10 +56,39 @@ __R-Version__
 R.Version()
 ```
 
+# Namen und Labels der Variablen
+```{r , echo=T, message=F, warning=F, comment=F}
+panderOptions("table.alignment.default", "left")
+namesofvar <- data.frame(names = c("beg_hw_min", "dau_hw_min", "stunde", "Schulart", "Klassenstufe", "lh_ank", "lh_auf", "lh_nen", 
+                                   "lh_sch", "lh_erl", "lh_wfr", "lh_bfr", "lh_wno", "lh_ano", "sh_auf", "sh_mel", "sh_fra", "sh_not"), 
+                         labels = c("Beginn der Hausaufgabenvergabe in Minuten nach geplantem Stundenbeginn",
+                                    "Dauer der Hausaufgabenvergabe in Minuten",
+                                    "Länge der Unterrichtsstunde in Minuten",
+                                    "Schulart [Grundschule/ Gymnasium]",
+                                    "Klassenstufe [1 bis 12]",
+                                    "L kündigt HA-Stellung an (verbal) [ja/nein]",
+                                    "L verlangt Aufmerksamkeit (verbal/nonverbal) [ja/nein]",
+                                    "L nennt HA [ja/nein]",
+                                    "L schreibt HA an die Tafel [ja/nein]",
+                                    "L erläutert Hausaufgabe / lässt erläutern [ja/nein]",
+                                    "L fordert zu Fragen auf [ja/nein]",
+                                    "L beantwortet Fragen: Wie viele werden beantwortet? [Wie viele?]",
+                                    "L fordert zum Notieren auf [ja/nein]",
+                                    "L achtet darauf, dass die HA notiert werden [ja/nein]",
+                                    "S sind aufmerksam [trifft zu, trifft eher zu, trifft teils-teils zu, trifft eher nicht zu, trifft nicht zu]",
+                                    "S melden sich, um zu fragen: Wie viele Meldungen? [Wie viele?]",
+                                    "S fragen mit oder ohne Meldung: Wie viele Fragen werden tatsächlich gestellt? [Wie viele?]",
+                                    "S notieren HA: Wie viele S ungefähr in % geschätzt? [Wie viele?]"))
+
+pander(namesofvar)
+```
+
+
 # Datenvorbereitung
 
 
 ```{r import, include=T}
+panderOptions("table.alignment.default", "centre")
 # import
 gym <- rio::import("data/gym.xls")
 gs <- rio::import("data/gs.xls")
@@ -541,6 +574,8 @@ Hier zeigen sich bei einem $N=510$ und einem angenommenen Cohen's $d=.35$ ebenfa
 
 # Zeitpunkt der HA-Vergabe
 
+## Deskriptive Daten Zeitpuknt & Dauer
+
 __Deskriptive Daten Einzelstunden__
 
 ```{r deskriptiv zeit 45}
@@ -610,6 +645,34 @@ paste("Modus der Hausaufgabenvergabe in 90min Stunden Gymnasium =", round(dens_9
 
 ### Prädiktor Schulart
 
+__Deskriptiver Plot__
+```{r , cache=F}
+###### DESCRIPTIVE PLOT ############################################### #
+
+## Awesome Rainvloud plots, check out source:
+# Allen M, Poggiali D, Whitaker K et al. Raincloud plots: a multi-platform tool for 
+#           robust data visualization [version 1; peer review: 2 approved]. 
+#           Wellcome Open Res 2019, 4:63. DOI: 10.12688/wellcomeopenres.15191.1
+source("R_rainclouds.R")
+
+ggplot(p_data%>%dplyr::filter(stunde == 45), aes(x="", y = beg_hw_min, fill = Schulart, colour = Schulart)) +
+    geom_flat_violin(position = position_nudge(x = 0, y = 0), adjust = 1.6, trim = F, alpha = .3) +
+    geom_boxplot(aes(x=""), position = position_nudge(x = c(.49, .54), y = 0), 
+                 outlier.shape = NA, alpha = .5, width = .04, colour = "black") +
+    geom_hline(yintercept = 45, linetype = "dashed", colour = "#696f71", size = 1) +
+    scale_colour_brewer(palette = "Set1")+
+    scale_fill_brewer(palette = "Set1") +
+    scale_y_continuous(expand = c(0, 0), breaks = c(0, 10,20,30,40,45,50,60), limits = c(0, 65)) +
+    scale_x_discrete(expand = c(0, 0)) +
+    ylab("Minuten seit geplantem Stundenbeginn bei Vergabe der HA") +
+    xlab("Dichte") +
+    ggtitle("Einzelstunden") +
+    theme_light() +
+    coord_flip()
+```
+\
+
+__Inferenzstatistik__
 ```{r plots zeitpunkt 45, cache=F}
 #### IMPUTATION #### #
 # separate Imputation für 45min
@@ -688,41 +751,69 @@ bf_45 <- bain(bf_data,
 
 print(bf_45)
 print(bf_45$BFmatrix)
-
-
-
-###### DESCRIPTIVE PLOT ############################################### #
-
-## Awesome Rainvloud plots, check out source:
-# Allen M, Poggiali D, Whitaker K et al. Raincloud plots: a multi-platform tool for 
-#           robust data visualization [version 1; peer review: 2 approved]. 
-#           Wellcome Open Res 2019, 4:63. DOI: 10.12688/wellcomeopenres.15191.1
-source("R_rainclouds.R")
-
-ggplot(p_data%>%dplyr::filter(stunde == 45), aes(x="", y = beg_hw_min, fill = Schulart, colour = Schulart)) +
-                geom_flat_violin(position = position_nudge(x = 0, y = 0), adjust = 1.6, trim = FALSE, alpha = .3) +
-                geom_boxplot(aes(x=""), position = position_nudge(x = c(.49, .54), y = 0), 
-                             outlier.shape = NA, alpha = .5, width = .04, colour = "black") +
-                geom_hline(yintercept = 45, linetype = "dashed", colour = "#696f71", size = 1) +
-                scale_colour_brewer(palette = "Set1")+
-                scale_fill_brewer(palette = "Set1") +
-                scale_y_continuous(expand = c(0, 0), breaks = c(0, 10,20,30,40,45,50,60), limits = c(0, 65)) +
-                scale_x_discrete(expand = c(0, 0)) +
-                ylab("Minuten seit geplantem Stundenbeginn") +
-                xlab("% Häufigkeit") +
-                theme_light() +
-                theme(axis.line = element_line(colour = "#696f71"),
-                      panel.grid.major = element_blank(),
-                      panel.grid.minor = element_blank(),
-                      panel.border = element_blank(),
-                      panel.background = element_rect(fill = "#f6f7f7")) +
-                coord_flip()
-      
-
 ```
 
 ### Prädiktor Klassenstufe
 
+__Deskriptiver Plot__  
+```{r }
+p_data_ridges <- p_data %>%
+    dplyr::filter(!is.na(Klassenstufe)) %>%
+    mutate(Klassenstufe = factor(Klassenstufe, levels = c(1,2,3,4,5,6,7,8,9,10,11,12)))
+
+ridges_length45 <- p_data_ridges %>%
+    dplyr::filter(stunde == 45) %>%
+    group_by(Klassenstufe) %>%
+    summarize_all(length) 
+
+names(ridges_length45) <- paste(names(ridges_length45), "_n45", sep="")
+names(ridges_length45)[1] <- "Klassenstufe"
+
+ridges_length90 <- p_data_ridges %>%
+    dplyr::filter(stunde == 90) %>%
+    group_by(Klassenstufe) %>%
+    summarize_all(length) 
+
+names(ridges_length90) <- paste(names(ridges_length90), "_n90", sep="")
+names(ridges_length90)[1] <- "Klassenstufe"
+
+ridges_length <- p_data_ridges %>%
+    group_by(Klassenstufe) %>%
+    summarize_all(length) 
+
+names(ridges_length) <- paste(names(ridges_length), "_n", sep="")
+names(ridges_length)[1] <- "Klassenstufe"
+
+p_data_ridges <- left_join(p_data_ridges, ridges_length45, by="Klassenstufe")
+p_data_ridges <- left_join(p_data_ridges, ridges_length90, by="Klassenstufe")
+p_data_ridges <- left_join(p_data_ridges, ridges_length, by="Klassenstufe")
+
+
+ggplot(p_data_ridges%>%dplyr::filter(stunde == 45), aes(x=as.factor(Klassenstufe), y = beg_hw_min, fill = Schulart, 
+                                                        colour = Schulart, group = as.factor(Klassenstufe))) +
+    geom_flat_violin(adjust = 2, 
+                     trim = F, 
+                     alpha = .3, 
+                     # scale = "count", 
+                     width = 3) +
+    geom_hline(yintercept = 45, linetype = "dashed", colour = "#696f71", size = 1) +
+    stat_summary(fun.y = mean, geom = "line", aes(group = 1), position = position_nudge(x=.1), size = 1, color = "grey") +
+    stat_summary(aes(size = beg_hw_min_n45), fun.y = mean, geom = "point",  
+                 alpha = .85, position = position_nudge(x=.1)) +
+    scale_size(range = c(.3,7.7)) +
+    scale_colour_brewer(palette = "Set1")+
+    scale_fill_brewer(palette = "Set1") +
+    scale_y_continuous(expand = c(0, 0), breaks = c(0, 10,20,30,40,50), limits = c(0, 55)) +
+    scale_x_discrete(expand = c(0, 0)) +
+    ylab("Minuten seit Stundenbeginn bei Vergabe der HA") +
+    labs(size = "Anzahl\neingegangener\nStunden") +
+    xlab("Klassenstufe") +
+    ggtitle("Einzelstunden") +
+    theme_light() 
+```
+\
+
+__Inferenzstatistik__  
 Aufgrund fehlender Standards im pooling von Bayes Faktoren (BF), berechnen wir für jeden Datensatz einen Bayes Faktor und berichten anschließend deren Verteilung.
 
 ```{r zpkt HA 45 Klassenstufe}
@@ -766,6 +857,27 @@ ggplot(kl_results, aes(x = `beg_hw_min-Klassenstufe`)) +
 
 ### Prädiktor Schulart
 
+__Deskriptiver Plot__
+```{r , cache=F}
+###### DESCRIPTIVE PLOT ############################################### #
+ggplot(p_data%>%dplyr::filter(stunde == 90), aes(x="", y = beg_hw_min, fill = Schulart, colour = Schulart)) +
+    geom_flat_violin(position = position_nudge(x = 0, y = 0), adjust = 1.6, trim = F, alpha = .3) +
+    geom_boxplot(aes(x=""), position = position_nudge(x = c(.49, .54), y = 0), 
+                 outlier.shape = NA, alpha = .5, width = .04, colour = "black") +
+    geom_hline(yintercept = 90, linetype = "dashed", colour = "#696f71", size = 1) +
+    scale_colour_brewer(palette = "Set1")+
+    scale_fill_brewer(palette = "Set1") +
+    scale_y_continuous(expand = c(0, 0), breaks = c(0, 10,20,30,40,50,60,70,80,90), limits = c(0, 95)) +
+    scale_x_discrete(expand = c(0, 0)) +
+    ylab("Minuten seit geplantem Stundenbeginn bei Vergabe der HA") +
+    xlab("Dichte") +
+    ggtitle("Doppelstunden") +
+    theme_light() +
+    coord_flip()
+```
+\
+
+__Inferenzstatistik__
 ```{r plots zeitpunkt 90, cache=F}
 #### IMPUTATION #### #
 # separate Imputation für 90min
@@ -844,36 +956,37 @@ bf_90 <- bain(bf_data,
 
 print(bf_90)
 print(bf_90$BFmatrix)
-
-
-###### DESCRIPTIVE PLOT ############################################### #
-
-ggplot(p_data%>%dplyr::filter(stunde == 90), 
-       aes(x="", y = beg_hw_min, fill = Schulart, colour = Schulart)) +
-                geom_flat_violin(position = position_nudge(x = 0, y = 0), 
-                                 adjust = 1.6, trim = FALSE, alpha = .3) +
-                geom_boxplot(aes(x=""), position = position_nudge(x = c(.50, .56), y = 0), 
-                             outlier.shape = NA, alpha = .5, width = .05, colour = "black") +
-                geom_hline(yintercept = 90, linetype = "dashed", colour = "#696f71", size = 1) +
-                scale_colour_brewer(palette = "Set1")+
-                scale_fill_brewer(palette = "Set1") +
-                scale_y_continuous(expand = c(0, 0), 
-                                   breaks = c(0, 10,20,30,40,50,60,70,80,90), 
-                                   limits = c(0,95)) +
-                scale_x_discrete(expand = c(0, 0)) +
-                ylab("Minuten seit geplantem Stundenbeginn") +
-                xlab("% Häufigkeit") +
-                theme_light() +
-                theme(axis.line = element_line(colour = "#696f71"),
-                      panel.grid.major = element_blank(),
-                      panel.grid.minor = element_blank(),
-                      panel.border = element_blank(),
-                      panel.background = element_rect(fill = "#f6f7f7")) +
-                coord_flip()
 ```
 
 ### Prädiktor Klassenstufe
+__Deskriptiver Plot__
+```{r }
+ggplot(p_data_ridges%>%dplyr::filter(stunde == 90), aes(x=as.factor(Klassenstufe), y = beg_hw_min, fill = Schulart, 
+                                                            colour = Schulart, group = as.factor(Klassenstufe))) +
+    geom_flat_violin(adjust = 2, 
+                     trim = F, 
+                     alpha = .3, 
+                     # scale = "count", 
+                     width = 3) +
+    geom_hline(yintercept = 90, linetype = "dashed", colour = "#696f71", size = 1) +
+    stat_summary(fun.y = mean, geom = "line", aes(group = 1), position = position_nudge(x=.1), size = 1, color = "grey") +
+    stat_summary(aes(size = beg_hw_min_n90), fun.y = mean, geom = "point",  
+                 alpha = .85, position = position_nudge(x=.1)) +
+    scale_size(range = c(.1,1.2)) +
+    scale_colour_brewer(palette = "Set1")+
+    scale_fill_brewer(palette = "Set1") +
+    scale_y_continuous(expand = c(0, 0), breaks = c(0, 10,20,30,40,50,60, 70, 80, 90, 100), limits = c(0, 100)) +
+    scale_x_discrete(expand = c(0, 0), breaks = c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"),
+                     limits = c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13")) +
+    ylab("") +
+    labs(size = "Anzahl\neingegangener\nStunden") +
+    xlab("Klassenstufe") +
+    ggtitle("Doppelstunden") +
+    theme_light() 
+```
+\
 
+__Inferenzstatistik__  
 Aufgrund fehlender Standards im pooling von Bayes Faktoren (BF), berechnen wir für jeden Datensatz einen Bayes Faktor und berichten anschließend deren Verteilung.
 
 ```{r zpkt HA 90 Klassenstufe}
@@ -918,7 +1031,26 @@ ggplot(kl_results, aes(x = `beg_hw_min-Klassenstufe`)) +
 ## 45min Stunden
 
 ### Prädiktor Schulart
+__Deskriptiver Plot__
+```{r }
+###### DESCRIPTIVE PLOT ############################################### #
+ggplot(p_data%>%dplyr::filter(stunde == 45), aes(x="", y = dau_hw_min, fill = Schulart, colour = Schulart)) +
+    geom_flat_violin(position = position_nudge(x = 0, y = 0), adjust = 1.6, trim = F, alpha = .3) +
+    geom_boxplot(aes(x=""), position = position_nudge(x = c(.49, .54), y = 0), 
+                 outlier.shape = NA, alpha = .5, width = .04, colour = "black") +
+    scale_colour_brewer(palette = "Set1")+
+    scale_fill_brewer(palette = "Set1") +
+    scale_y_continuous(expand = c(0, 0), breaks = c(0,5,10,15,20,25,30), limits = c(0, 30)) +
+    scale_x_discrete(expand = c(0, 0)) +
+    ylab("Dauer Hausaufgabenvergabe [Min]") +
+    xlab("Dichte") +
+    ggtitle("Einzelstunden") +
+    theme_light() +
+    coord_flip()
+```
+\
 
+__Inferenzstatistik__
 ```{r plots zeitbedarf 45}
 
 #### Compute BFs within informed hypotheses framework (bain) ##################################### #
@@ -985,32 +1117,35 @@ bf_45 <- bain(bf_data,
 
 print(bf_45)
 print(bf_45$BFmatrix)
-
-
-
-###### DESCRIPTIVE PLOT ############################################### #
-
-ggplot(p_data%>%dplyr::filter(stunde == 45), aes(x=Schulart, y = dau_hw_min, fill = Schulart)) +
-                geom_flat_violin(position = position_nudge(x = .1, y = 0), 
-                                 adjust = 1.6, trim = FALSE, alpha = .3, colour = NA) +
-                geom_point(position = position_jitter(width = .05), size = 1, alpha = 0.5, aes(color=Schulart)) +
-                geom_boxplot(position = position_nudge(x = -.15, y = 0), 
-                             outlier.shape = NA, alpha = .5, width = .1, colour = "black") +
-                scale_colour_brewer(palette = "Set1")+
-                scale_y_continuous(expand = c(0, 0)) +
-                scale_fill_brewer(palette = "Set1") +
-                ylab("Minuten") +
-                theme_light() +
-                theme(axis.line = element_line(colour = "#696f71"),
-                      panel.grid.major = element_blank(),
-                      panel.grid.minor = element_blank(),
-                      panel.border = element_blank(),
-                      panel.background = element_rect(fill = "#f6f7f7"))
-
 ```
 
 ### Prädiktor Klassenstufe
+__Deskriptiver Plot__
+```{r }
+ggplot(p_data_ridges%>%dplyr::filter(stunde == 45), aes(x=as.factor(Klassenstufe), y = dau_hw_min, fill = Schulart, 
+                                                            colour = Schulart, group = as.factor(Klassenstufe))) +
+    geom_flat_violin(adjust = 2, 
+                     trim = F, 
+                     alpha = .3, 
+                     # scale = "count", 
+                     width = 3) +
+    stat_summary(fun.y = mean, geom = "line", aes(group = 1), position = position_nudge(x=.1), size = 1, color = "grey") +
+    stat_summary(aes(size = dau_hw_min_n45), fun.y = mean, geom = "point",  
+                 alpha = .85, position = position_nudge(x=.1)) +
+    scale_size(range = c(.3,7.7)) +
+    scale_colour_brewer(palette = "Set1")+
+    scale_fill_brewer(palette = "Set1") +
+    scale_y_continuous(expand = c(0, 0), breaks = c(0,5,10,15,20,25,30), limits = c(0, 30)) +
+    scale_x_discrete(expand = c(0, 0)) +
+    ylab("Dauer der Hausaufgabenvergabe") +
+    labs(size = "Anzahl\neingegangener\nStunden") +
+    xlab("Klassenstufe") +
+    ggtitle("Einzelstunden") +
+    theme_light() 
+```
+\
 
+__Inferenzstatistik__  
 Aufgrund fehlender Standards im pooling von Bayes Faktoren (BF), berechnen wir für jeden Datensatz einen Bayes Faktor und berichten anschließend deren Verteilung.
 
 ```{r dau HA 45 Klassenstufe}
@@ -1054,7 +1189,25 @@ ggplot(kl_results, aes(x = `dau_hw_min-Klassenstufe`)) +
 ## 90min Stunden
 
 ### Prädiktor Schulart
+__Deskriptiver Plot__
+```{r }
+ggplot(p_data%>%dplyr::filter(stunde == 90), aes(x="", y = dau_hw_min, fill = Schulart, colour = Schulart)) +
+    geom_flat_violin(position = position_nudge(x = 0, y = 0), adjust = 1.6, trim = F, alpha = .3) +
+    geom_boxplot(aes(x=""), position = position_nudge(x = c(.49, .54), y = 0), 
+                 outlier.shape = NA, alpha = .5, width = .04, colour = "black") +
+    scale_colour_brewer(palette = "Set1")+
+    scale_fill_brewer(palette = "Set1") +
+    scale_y_continuous(expand = c(0, 0), breaks = c(0,5,10,15,20,25,30,35,40), limits = c(0, 40)) +
+    scale_x_discrete(expand = c(0, 0)) +
+    ylab("Dauer Hausaufgabenvergabe [Min]") +
+    xlab("Dichte") +
+    ggtitle("Doppelstunden") +
+    theme_light() +
+    coord_flip()
+```
+\
 
+__Inferenzstatistik__  
 ```{r plots zeitbedarf 90}
 
 #### Compute BFs within informed hypotheses framework (bain) ##################################### #
@@ -1119,32 +1272,37 @@ bf_90 <- bain(bf_data,
 
 print(bf_90)
 print(bf_90$BFmatrix)
-
-
-###### DESCRIPTIVE PLOT ############################################### #
-
-ggplot(p_data%>%dplyr::filter(stunde == 90), aes(x=Schulart, y = dau_hw_min, fill = Schulart)) +
-                geom_flat_violin(position = position_nudge(x = .1, y = 0), 
-                                 adjust = 1.6, trim = FALSE, alpha = .3, colour = NA) +
-                geom_point(position = position_jitter(width = .05), size = 1, alpha = 0.5, aes(color=Schulart)) +
-                geom_boxplot(position = position_nudge(x = -.15, y = 0), 
-                             outlier.shape = NA, alpha = .5, width = .1, colour = "black") +
-                scale_colour_brewer(palette = "Set1")+
-                scale_y_continuous(expand = c(0, 0)) +
-                scale_fill_brewer(palette = "Set1") +
-                ylab("Minuten") +
-                theme_light() +
-                theme(axis.line = element_line(colour = "#696f71"),
-                      panel.grid.major = element_blank(),
-                      panel.grid.minor = element_blank(),
-                      panel.border = element_blank(),
-                      panel.background = element_rect(fill = "#f6f7f7"))
-
 ```
 
 
 ### Prädiktor Klassenstufe
+__Deskriptiver Plot__
+```{r }
+ggplot(p_data_ridges%>%dplyr::filter(stunde == 90), aes(x=as.factor(Klassenstufe), y = dau_hw_min, fill = Schulart, 
+                                                            colour = Schulart, group = as.factor(Klassenstufe))) +
+    geom_flat_violin(adjust = 2, 
+                     trim = F, 
+                     alpha = .3, 
+                     # scale = "count", 
+                     width = 3) +
+    stat_summary(fun.y = mean, geom = "line", aes(group = 1), position = position_nudge(x=.1), size = 1, color = "grey") +
+    stat_summary(aes(size = dau_hw_min_n90), fun.y = mean, geom = "point",  
+                 alpha = .85, position = position_nudge(x=.1)) +
+    scale_size(range = c(.1,1.2)) +
+    scale_colour_brewer(palette = "Set1")+
+    scale_fill_brewer(palette = "Set1") +
+    scale_y_continuous(expand = c(0, 0), breaks = c(0,5,10,15,20,25,30,35,40,45), limits = c(0, 45)) +
+    scale_x_discrete(expand = c(0, 0), breaks = c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"),
+                     limits = c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13")) +
+    ylab("Dauer Hausaufgabenvergabe [Min]") +
+    labs(size = "Anzahl\neingegangener\nStunden") +
+    xlab("Klassenstufe") +
+    ggtitle("Doppelstunden") +
+    theme_light()
+```
+\
 
+__Inferenzstatistik__  
 Aufgrund fehlender Standards im pooling von Bayes Faktoren (BF), berechnen wir für jeden Datensatz einen Bayes Faktor und berichten anschließend deren Verteilung.
 
 ```{r dau HA 90 Klassenstufe}
@@ -1332,21 +1490,17 @@ lh_ank_p <- p_data %>%
          )))
 
 ggplot(lh_ank_p, aes(x = Klassenstufe, y = lh_ank, color = Schulart)) + 
-  geom_line(aes(group = NA), color = "grey", size = 1) +
-  geom_point(aes(size = length_n)) +
-  geom_text(aes(label = paste(round(lh_ank*100,0), "%"), vjust = 3)) +
-  scale_y_continuous(limits = c(0,1), expand = c(0,0)) +
-  geom_rect(aes(xmin = 0, xmax = 4.5, ymin = -Inf, ymax = Inf), fill = "pink", alpha = .01, color = NA) +
-  geom_rect(aes(xmin = 4.5, xmax = 14, ymin = -Inf, ymax = Inf), fill = "#BFEFFF", alpha = .01, color = NA) +
-  xlab("Klassenstufe") +
-  ylab("% Häufigkeit") +
-  labs(size = "Anzahl\neingegangener\nStunden") +
-  theme_light() +
-                theme(axis.line = element_line(colour = "#696f71"),
-                      panel.grid.major = element_blank(),
-                      panel.grid.minor = element_blank(),
-                      panel.border = element_blank(),
-                      panel.background = element_rect(fill = "#f6f7f7")) 
+    geom_line(aes(group = NA), color = "grey", size = 1) +
+    geom_point(aes(size = length_n), alpha = .9) +
+    geom_text(aes(label = paste(round(lh_ank*100,0), sep = ""), vjust = 3)) +
+    scale_y_continuous(limits = c(0,1), expand = c(0,0), labels = c("0", "25", "50", "75", "100")) +
+    scale_colour_brewer(palette = "Set1")+
+    scale_fill_brewer(palette = "Set1") +
+    xlab("Klassenstufe") +
+    ggtitle("Kündigt HA an") +
+    ylab("% Häufigkeit") +
+    labs(size = "Anzahl\neingegangener\nStunden") +
+    theme_light() 
   
   
 ```
@@ -1472,21 +1626,17 @@ lh_auf_p <- p_data %>%
          )))
 
 ggplot(lh_auf_p, aes(x = Klassenstufe, y = lh_auf, color = Schulart)) + 
-  geom_line(aes(group = NA), color = "grey", size = 1) +
-  geom_point(aes(size = length_n)) +
-  geom_text(aes(label = paste(round(lh_auf*100,0), "%"), vjust = 3)) +
-  scale_y_continuous(limits = c(0,1), expand = c(0,0)) +
-  geom_rect(aes(xmin = 0, xmax = 4.5, ymin = -Inf, ymax = Inf), fill = "pink", alpha = .01, color = NA) +
-  geom_rect(aes(xmin = 4.5, xmax = 14, ymin = -Inf, ymax = Inf), fill = "#BFEFFF", alpha = .01, color = NA) +
-  xlab("Klassenstufe") +
-  ylab("% Häufigkeit") +
-  labs(size = "Anzahl\neingegangener\nStunden") +
-  theme_light() +
-                theme(axis.line = element_line(colour = "#696f71"),
-                      panel.grid.major = element_blank(),
-                      panel.grid.minor = element_blank(),
-                      panel.border = element_blank(),
-                      panel.background = element_rect(fill = "#f6f7f7")) 
+    geom_line(aes(group = NA), color = "grey", size = 1) +
+    geom_point(aes(size = length_n), alpha = .9) +
+    geom_text(aes(label = paste(round(lh_auf*100,0), sep = ""), vjust = 3)) +
+    scale_y_continuous(limits = c(0,1), expand = c(0,0), labels = c("0", "25", "50", "75", "100")) +
+    scale_colour_brewer(palette = "Set1")+
+    scale_fill_brewer(palette = "Set1") +
+    xlab("Klassenstufe") +
+    ggtitle("Fordert Aufmerksamkeit") +
+    ylab("% Häufigkeit") +
+    labs(size = "Anzahl\neingegangener\nStunden") +
+    theme_light() 
 ```
 
 
@@ -1610,21 +1760,18 @@ lh_nen_p <- p_data %>%
          )))
 
 ggplot(lh_nen_p, aes(x = Klassenstufe, y = lh_nen, color = Schulart)) + 
-  geom_line(aes(group = NA), color = "grey", size = 1) +
-  geom_point(aes(size = length_n)) +
-  geom_text(aes(label = paste(round(lh_nen*100,0), "%"), vjust = 3)) +
-  scale_y_continuous(limits = c(0,1), expand = c(0,0)) +
-  geom_rect(aes(xmin = 0, xmax = 4.5, ymin = -Inf, ymax = Inf), fill = "pink", alpha = .01, color = NA) +
-  geom_rect(aes(xmin = 4.5, xmax = 14, ymin = -Inf, ymax = Inf), fill = "#BFEFFF", alpha = .01, color = NA) +
-  xlab("Klassenstufe") +
-  ylab("% Häufigkeit") +
-  labs(size = "Anzahl\neingegangener\nStunden") +
-  theme_light() +
-                theme(axis.line = element_line(colour = "#696f71"),
-                      panel.grid.major = element_blank(),
-                      panel.grid.minor = element_blank(),
-                      panel.border = element_blank(),
-                      panel.background = element_rect(fill = "#f6f7f7")) 
+    geom_line(aes(group = NA), color = "grey", size = 1) +
+    geom_point(aes(size = length_n), alpha = .9) +
+    geom_text(aes(label = paste(round(lh_nen*100,0), sep = ""), vjust = 3)) +
+    scale_y_continuous(limits = c(0,1), expand = c(0,0), labels = c("0", "25", "50", "75", "100")) +
+    scale_x_discrete(limits = c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12")) +
+    scale_colour_brewer(palette = "Set1")+
+    scale_fill_brewer(palette = "Set1") +
+    xlab("Klassenstufe") +
+    ggtitle("Nennt HA") +
+    ylab("% Häufigkeit") +
+    labs(size = "Anzahl\neingegangener\nStunden") +
+    theme_light() 
 ```
 
 
@@ -1748,22 +1895,17 @@ lh_sch_p <- p_data %>%
          )))
 
 ggplot(lh_sch_p, aes(x = Klassenstufe, y = lh_sch, color = Schulart)) + 
-  geom_line(aes(group = NA), color = "grey", size = 1) +
-  geom_point(aes(size = length_n)) +
-  geom_text(aes(label = paste(round(lh_sch*100,0), "%"), vjust = 3)) +
-  scale_y_continuous(limits = c(0,1), expand = c(0,0)) +
-  geom_rect(aes(xmin = 0, xmax = 4.5, ymin = -Inf, ymax = Inf), fill = "pink", alpha = .01, color = NA) +
-  geom_rect(aes(xmin = 4.5, xmax = 14, ymin = -Inf, ymax = Inf), fill = "#BFEFFF", alpha = .01, color = NA) +
-  xlab("Klassenstufe") +
-  ylab("% Häufigkeit") +
-  labs(size = "Anzahl\neingegangener\nStunden") +
-  theme_light() +
-                theme(axis.line = element_line(colour = "#696f71"),
-                      panel.grid.major = element_blank(),
-                      panel.grid.minor = element_blank(),
-                      panel.border = element_blank(),
-                      panel.background = element_rect(fill = "#f6f7f7")) 
-
+    geom_line(aes(group = NA), color = "grey", size = 1) +
+    geom_point(aes(size = length_n), alpha = .9) +
+    geom_text(aes(label = paste(round(lh_sch*100,0), sep = ""), vjust = 3)) +
+    scale_y_continuous(limits = c(0,1), expand = c(0,0), labels = c("0", "25", "50", "75", "100")) +
+    scale_colour_brewer(palette = "Set1")+
+    scale_fill_brewer(palette = "Set1") +
+    xlab("Klassenstufe") +
+    ggtitle("Schreibt HA an") +
+    ylab("% Häufigkeit") +
+    labs(size = "Anzahl\neingegangener\nStunden") +
+    theme_light() 
 ```
 
 
@@ -1886,21 +2028,17 @@ lh_erl_p <- p_data %>%
          )))
 
 ggplot(lh_erl_p, aes(x = Klassenstufe, y = lh_erl, color = Schulart)) + 
-  geom_line(aes(group = NA), color = "grey", size = 1) +
-  geom_point(aes(size = length_n)) +
-  geom_text(aes(label = paste(round(lh_erl*100,0), "%"), vjust = 3)) +
-  scale_y_continuous(limits = c(0,1), expand = c(0,0)) +
-  geom_rect(aes(xmin = 0, xmax = 4.5, ymin = -Inf, ymax = Inf), fill = "pink", alpha = .01, color = NA) +
-  geom_rect(aes(xmin = 4.5, xmax = 14, ymin = -Inf, ymax = Inf), fill = "#BFEFFF", alpha = .01, color = NA) +
-  xlab("Klassenstufe") +
-  ylab("% Häufigkeit") +
-  labs(size = "Anzahl\neingegangener\nStunden") +
-  theme_light() +
-                theme(axis.line = element_line(colour = "#696f71"),
-                      panel.grid.major = element_blank(),
-                      panel.grid.minor = element_blank(),
-                      panel.border = element_blank(),
-                      panel.background = element_rect(fill = "#f6f7f7")) 
+    geom_line(aes(group = NA), color = "grey", size = 1) +
+    geom_point(aes(size = length_n), alpha = .9) +
+    geom_text(aes(label = paste(round(lh_erl*100,0), sep = ""), vjust = 3)) +
+    scale_y_continuous(limits = c(0,1), expand = c(0,0), labels = c("0", "25", "50", "75", "100")) +
+    scale_colour_brewer(palette = "Set1")+
+    scale_fill_brewer(palette = "Set1") +
+    xlab("Klassenstufe") +
+    ggtitle("Erläutert HA") +
+    ylab("% Häufigkeit") +
+    labs(size = "Anzahl\neingegangener\nStunden") +
+    theme_light() 
 ```
 
 
@@ -2024,21 +2162,17 @@ lh_wfr_p <- p_data %>%
          )))
 
 ggplot(lh_wfr_p, aes(x = Klassenstufe, y = lh_wfr, color = Schulart)) + 
-  geom_line(aes(group = NA), color = "grey", size = 1) +
-  geom_point(aes(size = length_n)) +
-  geom_text(aes(label = paste(round(lh_wfr*100,0), "%"), vjust = 3)) +
-  scale_y_continuous(limits = c(0,1), expand = c(0,0)) +
-  geom_rect(aes(xmin = 0, xmax = 4.5, ymin = -Inf, ymax = Inf), fill = "pink", alpha = .01, color = NA) +
-  geom_rect(aes(xmin = 4.5, xmax = 14, ymin = -Inf, ymax = Inf), fill = "#BFEFFF", alpha = .01, color = NA) +
-  xlab("Klassenstufe") +
-  ylab("% Häufigkeit") +
-  labs(size = "Anzahl\neingegangener\nStunden") +
-  theme_light() +
-                theme(axis.line = element_line(colour = "#696f71"),
-                      panel.grid.major = element_blank(),
-                      panel.grid.minor = element_blank(),
-                      panel.border = element_blank(),
-                      panel.background = element_rect(fill = "#f6f7f7")) 
+    geom_line(aes(group = NA), color = "grey", size = 1) +
+    geom_point(aes(size = length_n), alpha = .9) +
+    geom_text(aes(label = paste(round(lh_wfr*100,0), sep = ""), vjust = -3)) +
+    scale_y_continuous(limits = c(0,1), expand = c(0,0), labels = c("0", "25", "50", "75", "100")) +
+    scale_colour_brewer(palette = "Set1")+
+    scale_fill_brewer(palette = "Set1") +
+    xlab("Klassenstufe") +
+    ggtitle("Will Fragen") +
+    ylab("% Häufigkeit") +
+    labs(size = "Anzahl\neingegangener\nStunden") +
+    theme_light() 
 ```
 
 
@@ -2161,21 +2295,17 @@ lh_wno_p <- p_data %>%
          )))
 
 ggplot(lh_wno_p, aes(x = Klassenstufe, y = lh_wno, color = Schulart)) + 
-  geom_line(aes(group = NA), color = "grey", size = 1) +
-  geom_point(aes(size = length_n)) +
-  geom_text(aes(label = paste(round(lh_wno*100,0), "%"), vjust = 3)) +
-  scale_y_continuous(limits = c(0,1), expand = c(0,0)) +
-  geom_rect(aes(xmin = 0, xmax = 4.5, ymin = -Inf, ymax = Inf), fill = "pink", alpha = .01, color = NA) +
-  geom_rect(aes(xmin = 4.5, xmax = 14, ymin = -Inf, ymax = Inf), fill = "#BFEFFF", alpha = .01, color = NA) +
-  xlab("Klassenstufe") +
-  ylab("% Häufigkeit") +
-  labs(size = "Anzahl\neingegangener\nStunden") +
-  theme_light() +
-                theme(axis.line = element_line(colour = "#696f71"),
-                      panel.grid.major = element_blank(),
-                      panel.grid.minor = element_blank(),
-                      panel.border = element_blank(),
-                      panel.background = element_rect(fill = "#f6f7f7")) 
+    geom_line(aes(group = NA), color = "grey", size = 1) +
+    geom_point(aes(size = length_n), alpha = .9) +
+    geom_text(aes(label = paste(round(lh_wno*100,0), sep = ""), vjust = 2)) +
+    scale_y_continuous(limits = c(0,1), expand = c(0,0), labels = c("0", "25", "50", "75", "100")) +
+    scale_colour_brewer(palette = "Set1")+
+    scale_fill_brewer(palette = "Set1") +
+    xlab("Klassenstufe") +
+    ggtitle("Will Notation") +
+    ylab("% Häufigkeit") +
+    labs(size = "Anzahl\neingegangener\nStunden") +
+    theme_light() 
 ```
 
 
@@ -2298,21 +2428,17 @@ lh_ano_p <- p_data %>%
          )))
 
 ggplot(lh_ano_p, aes(x = Klassenstufe, y = lh_ano, color = Schulart)) + 
-  geom_line(aes(group = NA), color = "grey", size = 1) +
-  geom_point(aes(size = length_n)) +
-  geom_text(aes(label = paste(round(lh_ano*100,0), "%"), vjust = 3)) +
-  scale_y_continuous(limits = c(0,1), expand = c(0,0)) +
-  geom_rect(aes(xmin = 0, xmax = 4.5, ymin = -Inf, ymax = Inf), fill = "pink", alpha = .01, color = NA) +
-  geom_rect(aes(xmin = 4.5, xmax = 14, ymin = -Inf, ymax = Inf), fill = "#BFEFFF", alpha = .01, color = NA) +
-  xlab("Klassenstufe") +
-  ylab("% Häufigkeit") +
-  labs(size = "Anzahl\neingegangener\nStunden") +
-  theme_light() +
-                theme(axis.line = element_line(colour = "#696f71"),
-                      panel.grid.major = element_blank(),
-                      panel.grid.minor = element_blank(),
-                      panel.border = element_blank(),
-                      panel.background = element_rect(fill = "#f6f7f7")) 
+    geom_line(aes(group = NA), color = "grey", size = 1) +
+    geom_point(aes(size = length_n), alpha = .9) +
+    geom_text(aes(label = paste(round(lh_ano*100,0), sep = ""), vjust = -2)) +
+    scale_y_continuous(limits = c(0,1), expand = c(0,0), labels = c("0", "25", "50", "75", "100")) +
+    scale_colour_brewer(palette = "Set1")+
+    scale_fill_brewer(palette = "Set1") +
+    xlab("Klassenstufe") +
+    ggtitle("Achtet auf Notation") +
+    ylab("% Häufigkeit") +
+    labs(size = "Anzahl\neingegangener\nStunden") +
+    theme_light() 
 
 ```
 
@@ -2452,22 +2578,19 @@ lh_bfr_p <- p_data %>%
                       TRUE ~ "Gymnasium"
          )))
 
-ggplot(lh_bfr_p, aes(x = Klassenstufe, y = lh_bfr, color = Schulart)) + 
-  geom_line(aes(group = NA), color = "grey", size = 1) +
-  geom_point(aes(size = length_n)) +
-  geom_text(aes(label = round(lh_bfr, 2), vjust = 3)) +
-  scale_y_continuous(limits = c(0,(max(lh_bfr_p$lh_bfr)*1.1)), expand = c(0,0)) +
-  geom_rect(aes(xmin = 0, xmax = 4.5, ymin = -Inf, ymax = Inf), fill = "pink", alpha = .01, color = NA) +
-  geom_rect(aes(xmin = 4.5, xmax = 14, ymin = -Inf, ymax = Inf), fill = "#BFEFFF", alpha = .01, color = NA) +
-  xlab("Klassenstufe") +
-  ylab("∅ absolute Häufigkeit") +
-  labs(size = "Anzahl\neingegangener\nStunden") +
-  theme_light() +
-                theme(axis.line = element_line(colour = "#696f71"),
-                      panel.grid.major = element_blank(),
-                      panel.grid.minor = element_blank(),
-                      panel.border = element_blank(),
-                      panel.background = element_rect(fill = "#f6f7f7")) 
+ggplot(lh_bfr_p, aes(x = Klassenstufe, y = lh_bfr, color = Schulart)) +
+    geom_line(aes(group = NA), color = "grey", size = 1) +
+    geom_point(aes(size = length_n), alpha = .9) +
+    geom_text(aes(label = sub("^(-?)0.", "\\1.", round(lh_bfr, 2)), vjust = 2)) +
+    scale_y_continuous(limits = c(0,(max(lh_bfr_p$lh_bfr)*1.1)), expand = c(0,0)) +
+    scale_x_discrete(limits = c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12")) +
+    scale_colour_brewer(palette = "Set1")+
+    scale_fill_brewer(palette = "Set1") +
+    xlab("Klassenstufe") +
+    ylab("∅ absolute Häufigkeit") +
+    ggtitle("Anzahl beantworteter Fragen durch Lehrperson") +
+    labs(size = "Anzahl\neingegangener\nStunden") +
+    theme_light()
 ```
 
 
@@ -2591,9 +2714,9 @@ ggplot(kl_results, aes(x = `sh_auf-Klassenstufe`)) +
 
 sh_auf_p <- p_data %>%
   dplyr::filter(!is.na(sh_auf) & !is.na(Klassenstufe)) %>%
-  group_by(Klassenstufe) %>%
-  mutate(length = length(sh_auf)) %>%
-  summarize(sh_auf = mean(sh_auf, na.rm=T),
+  dplyr::group_by(Klassenstufe) %>%
+  dplyr::mutate(length = length(sh_auf)) %>%
+  dplyr::summarize(sh_auf = mean(sh_auf, na.rm=T),
             length_n = mean(length)) %>%
   ungroup() %>%
   mutate(Klassenstufe = factor(Klassenstufe, levels = c("1", "1_2", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12")),
@@ -2606,22 +2729,27 @@ sh_auf_p <- p_data %>%
                       TRUE ~ "Gymnasium"
          )))
 
-ggplot(sh_auf_p, aes(x = Klassenstufe, y = sh_auf, color = Schulart)) + 
-  geom_line(aes(group = NA), color = "grey", size = 1) +
-  geom_point(aes(size = length_n)) +
-  geom_text(aes(label = round(sh_auf,1), vjust = -3)) +
-  scale_y_continuous(limits = c(1,5), expand = c(0,0)) +
-  geom_rect(aes(xmin = 0, xmax = 4.5, ymin = -Inf, ymax = Inf), fill = "pink", alpha = .01, color = NA) +
-  geom_rect(aes(xmin = 4.5, xmax = 14, ymin = -Inf, ymax = Inf), fill = "#BFEFFF", alpha = .01, color = NA) +
-  xlab("Klassenstufe") +
-  ylab("Zustimmung (Likert Item)") +
-  labs(size = "Anzahl\neingegangener\nStunden") +
-  theme_light() +
-                theme(axis.line = element_line(colour = "#696f71"),
-                      panel.grid.major = element_blank(),
-                      panel.grid.minor = element_blank(),
-                      panel.border = element_blank(),
-                      panel.background = element_rect(fill = "#f6f7f7")) 
+ggplot(p_data_ridges, aes(x=as.factor(Klassenstufe), y = sh_auf, fill = Schulart,
+                          colour = Schulart, group = as.factor(Klassenstufe))) +
+    geom_flat_violin(adjust = 1,
+                     trim = F,
+                     alpha = .3,
+                     # scale = "count",
+                     width = 2) +
+    stat_summary(fun.y = mean, geom = "line", aes(group = 1), position = position_nudge(x=.1), size = 1, color = "grey") +
+    stat_summary(aes(size = sh_auf_n), fun.y = mean, geom = "point",
+                 alpha = .85, position = position_nudge(x=.1)) +
+    geom_text(data = sh_auf_p, aes(label = round(sh_auf, 2), vjust = 2, hjust = -.1), position = position_dodge(width = 1), color = "black") +
+    scale_colour_brewer(palette = "Set1")+
+    scale_fill_brewer(palette = "Set1") +
+    scale_y_continuous(expand = c(0, 0), breaks = c(1:5), limits = c(1, 5)) +
+    scale_x_discrete(expand = c(0, 0), breaks = c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"),
+                     limits = c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13")) +
+    xlab("Klassenstufe") +
+    ylab("Zustimmung (Likert Item)") +
+    ggtitle("Eingeschätzte Aufmerksamkeit der SuS") +
+    labs(size = "Anzahl\neingegangener\nStunden") +
+    theme_light()
 ```
 
 ## SuS melden sich
@@ -2741,10 +2869,11 @@ ggplot(kl_results, aes(x = `sh_mel-Klassenstufe`)) +
 
 sh_mel_p <- p_data %>%
   dplyr::filter(!is.na(sh_mel) & !is.na(Klassenstufe)) %>%
-  group_by(Klassenstufe) %>%
-  mutate(length = length(sh_mel)) %>%
-  summarize(sh_mel = mean(sh_mel, na.rm=T),
-            length_n = mean(length)) %>%
+  dplyr::group_by(Klassenstufe) %>%
+  dplyr::mutate(length = length(sh_mel)) %>%
+  dplyr::summarize(sh_mel_sd = sd(sh_mel, na.rm=T),
+                   sh_mel = mean(sh_mel, na.rm=T),
+                   length_n = mean(length)) %>%
   ungroup() %>%
   mutate(Klassenstufe = factor(Klassenstufe, levels = c("1", "1_2", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12")),
          Schulart = as.factor(case_when(
@@ -2756,22 +2885,27 @@ sh_mel_p <- p_data %>%
                       TRUE ~ "Gymnasium"
          )))
 
-ggplot(sh_mel_p, aes(x = Klassenstufe, y = sh_mel, color = Schulart)) + 
-  geom_line(aes(group = NA), color = "grey", size = 1) +
-  geom_point(aes(size = length_n)) +
-  geom_text(aes(label = round(sh_mel, 2), vjust = 3)) +
-  scale_y_continuous(limits = c(0,(max(sh_mel_p$sh_mel)*1.1)), expand = c(0,0)) +
-  geom_rect(aes(xmin = 0, xmax = 4.5, ymin = -Inf, ymax = Inf), fill = "pink", alpha = .01, color = NA) +
-  geom_rect(aes(xmin = 4.5, xmax = 14, ymin = -Inf, ymax = Inf), fill = "#BFEFFF", alpha = .01, color = NA) +
-  xlab("Klassenstufe") +
-  ylab("∅ absolute Häufigkeit") +
-  labs(size = "Anzahl\neingegangener\nStunden") +
-  theme_light() +
-                theme(axis.line = element_line(colour = "#696f71"),
-                      panel.grid.major = element_blank(),
-                      panel.grid.minor = element_blank(),
-                      panel.border = element_blank(),
-                      panel.background = element_rect(fill = "#f6f7f7")) 
+ggplot(p_data_ridges, aes(x=as.factor(Klassenstufe), y = sh_mel, fill = Schulart,
+                          colour = Schulart, group = as.factor(Klassenstufe))) +
+    geom_flat_violin(adjust = 1,
+                     trim = F,
+                     alpha = .3,
+                     # scale = "count",
+                     width = 2) +
+    stat_summary(fun.y = mean, geom = "line", aes(group = 1), position = position_nudge(x=.1), size = 1, color = "grey") +
+    stat_summary(aes(size = sh_mel_n), fun.y = mean, geom = "point",
+                 alpha = .85, position = position_nudge(x=.1)) +
+    geom_text(data = sh_mel_p, aes(label = sub("^(-?)0.", "\\1.", round(sh_mel, 2)), vjust = -0.5, hjust = -.2), position = position_dodge(width = 1), color = "black") +
+    scale_colour_brewer(palette = "Set1")+
+    scale_fill_brewer(palette = "Set1") +
+    scale_y_continuous(expand = c(0, 0), breaks = c(0:7), limits = c(0, 3)) +
+    scale_x_discrete(expand = c(0, 0), breaks = c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"),
+                     limits = c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13")) +
+    xlab("Klassenstufe") +
+    ylab("absolute Häufigkeit") +
+    ggtitle("Anzahl Schülermeldungen") +
+    labs(size = "Anzahl\neingegangener\nStunden") +
+    theme_light()
 ```
 
 
@@ -2908,23 +3042,28 @@ sh_fra_p <- p_data %>%
                       TRUE ~ "Gymnasium"
          )))
 
-ggplot(sh_fra_p, aes(x = Klassenstufe, y = sh_fra, color = Schulart)) + 
-  geom_line(aes(group = NA), color = "grey", size = 1) +
-  geom_point(aes(size = length_n)) +
-  geom_text(aes(label = round(sh_fra, 2), vjust = 3)) +
-  scale_y_continuous(limits = c(0,(max(sh_fra_p$sh_fra)*1.1)), expand = c(0,0)) +
-  geom_rect(aes(xmin = 0, xmax = 4.5, ymin = -Inf, ymax = Inf), fill = "pink", alpha = .01, color = NA) +
-  geom_rect(aes(xmin = 4.5, xmax = 14, ymin = -Inf, ymax = Inf), fill = "#BFEFFF", alpha = .01, color = NA) +
-  xlab("Klassenstufe") +
-  ylab("∅ absolute Häufigkeit") +
-  labs(size = "Anzahl\neingegangener\nStunden") +
-  theme_light() +
-                theme(axis.line = element_line(colour = "#696f71"),
-                      panel.grid.major = element_blank(),
-                      panel.grid.minor = element_blank(),
-                      panel.border = element_blank(),
-                      panel.background = element_rect(fill = "#f6f7f7")) 
-
+ggplot(p_data_ridges, aes(x=as.factor(Klassenstufe), y = sh_fra, fill = Schulart,
+                          colour = Schulart, group = as.factor(Klassenstufe))) +
+    geom_flat_violin(adjust = 1,
+                     trim = F,
+                     alpha = .3,
+                     # scale = "count",
+                     width = 2) +
+    stat_summary(fun.y = mean, geom = "line", aes(group = 1), position = position_nudge(x=.1), size = 1, color = "grey") +
+    stat_summary(aes(size = sh_fra_n), fun.y = mean, geom = "point",
+                 alpha = .85, position = position_nudge(x=.1)) +
+    geom_text(data = sh_fra_p, aes(label = sub("^(-?)0.", "\\1.", round(sh_fra, 2)), vjust = -.5, hjust = -.1), position = position_dodge(width = 1), 
+              color = "black") +
+    scale_colour_brewer(palette = "Set1")+
+    scale_fill_brewer(palette = "Set1") +
+    scale_y_continuous(expand = c(0, 0), breaks = c(0:3), limits = c(0, 3)) +
+    scale_x_discrete(expand = c(0, 0), breaks = c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"),
+                     limits = c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13")) +
+    xlab("Klassenstufe") +
+    ylab("absolute Häufigkeit") +
+    ggtitle("Anzahl Schülerfragen") +
+    labs(size = "Anzahl\neingegangener\nStunden") +
+    theme_light()
 ```
 
 
@@ -3046,9 +3185,9 @@ ggplot(kl_results, aes(x = `sh_not-Klassenstufe`)) +
 
 sh_not_p <- p_data %>%
   dplyr::filter(!is.na(sh_not) & !is.na(Klassenstufe)) %>%
-  group_by(Klassenstufe) %>%
-  mutate(length = length(sh_not)) %>%
-  summarize(sh_not = mean(sh_not, na.rm=T),
+  dplyr::group_by(Klassenstufe) %>%
+  dplyr::mutate(length = length(sh_not)) %>%
+  dplyr::summarize(sh_not = mean(sh_not, na.rm=T),
             length_n = mean(length)) %>%
   ungroup() %>%
   mutate(Klassenstufe = factor(Klassenstufe, levels = c("1", "1_2", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12")),
@@ -3061,22 +3200,36 @@ sh_not_p <- p_data %>%
                       TRUE ~ "Gymnasium"
          )))
 
-ggplot(sh_not_p, aes(x = Klassenstufe, y = sh_not, color = Schulart)) + 
-  geom_line(aes(group = NA), color = "grey", size = 1) +
-  geom_point(aes(size = length_n)) +
-  geom_text(aes(label = paste(round(sh_not,0), "%"), vjust = 3)) +
-  scale_y_continuous(limits = c(0,(max(sh_not_p$sh_not)*1.1)), expand = c(0,0)) +
-  geom_rect(aes(xmin = 0, xmax = 4.5, ymin = -Inf, ymax = Inf), fill = "pink", alpha = .01, color = NA) +
-  geom_rect(aes(xmin = 4.5, xmax = 14, ymin = -Inf, ymax = Inf), fill = "#BFEFFF", alpha = .01, color = NA) +
-  xlab("Klassenstufe") +
-  ylab("∅ absolute Häufigkeit") +
-  labs(size = "Anzahl\neingegangener\nStunden") +
-  theme_light() +
-                theme(axis.line = element_line(colour = "#696f71"),
-                      panel.grid.major = element_blank(),
-                      panel.grid.minor = element_blank(),
-                      panel.border = element_blank(),
-                      panel.background = element_rect(fill = "#f6f7f7")) 
+
+p_data_ridges <- p_data_ridges %>%
+    mutate(sh_not_p = sh_not/100)
+
+sh_not_p <- sh_not_p %>%
+    mutate(sh_not_p = sh_not/100)
+
+ggplot(p_data_ridges, aes(x=as.factor(Klassenstufe), y = sh_not_p, fill = Schulart,
+                          colour = Schulart, group = as.factor(Klassenstufe))) +
+    geom_flat_violin(adjust = 1,
+                     trim = F,
+                     alpha = .3,
+                     # scale = "count",
+                     width = 2) +
+    stat_summary(fun.y = mean, geom = "line", aes(group = 1), position = position_nudge(x=.1), size = 1, color = "grey") +
+    stat_summary(aes(size = sh_not_n), fun.y = mean, geom = "point",
+                 alpha = .85, position = position_nudge(x=.1)) +
+    geom_text(data = sh_not_p, aes(label = round(sh_not_p, 2)*100, vjust = 2, hjust = -.3),
+              position = position_dodge(width = 1), color = "black") +
+    scale_colour_brewer(palette = "Set1")+
+    scale_fill_brewer(palette = "Set1") +
+    scale_y_continuous(expand = c(0, 0), breaks = c(0,0.2,0.4,0.6,0.8,1), limits = c(0, 1),
+                       labels = c("0", "20", "40", "60", "80", "100")) +
+    scale_x_discrete(expand = c(0, 0), breaks = c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"),
+                     limits = c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13")) +
+    xlab("Klassenstufe") +
+    ylab("∅ relative Häufigkeit [%]") +
+    ggtitle("Anteil der notierenden SuS") +
+    labs(size = "Anzahl\neingegangener\nStunden") +
+    theme_light()
 ```
 
 
@@ -3229,7 +3382,7 @@ cor_values <- bind_rows(corGSGY_nondi, cor_di)
 
 __Bitte mit der Maus über die einzelnen Punkte fahren, um zu erfahren um welche Korrelation es sich handelt.__
 
-```{r korrelationen, fig.width=11, fig.height=11}
+```{r korrelationen plot, fig.width=11, fig.height=11}
 
 axis_def <- list(range = c(-.4, 1),
                  dtick = 0.25,
@@ -3298,7 +3451,7 @@ plot_ly() %>%
 
 __Genaue Werte der Korrelationen__
 
-```{r }
+```{r tabelle korrelationen}
 pander(cor_values)
 ```
 \
@@ -3306,7 +3459,7 @@ pander(cor_values)
 __Korrelationen des Zeitpunkts und Dauer der Hausaufgabenvergabe__  
 über beide Schularten hinweg.
 
-```{r }
+```{r korrelation dauer - zeitpunkt 1}
 cor45_hw <- miceadds::micombine.cor(imp45, variables = c("beg_hw_min", "dau_hw_min"))
 cor45_hw <- cor45_hw %>%
     select(variable1, variable2, r)
@@ -3320,6 +3473,90 @@ cor_hw$Stundenlaenge <- c("Einzelstunde", "Doppelstunde")
 cor_hw <- cor_hw[,c("Stundenlaenge", "variable1", "variable2", "r")]
 pander(cor_hw)
 ```
+\
+\
+
+__Korrelationen des Zeitpunkts und Dauer der Hausaufgabenvergabe__  
+nach Schulart getrennt.
+
+```{r korrelation dauer - zeitpunkt 2}
+# filter for Grundschule and Einzelstunde
+p_data_45_gs <- p_data %>%
+  filter(Schulart == "Grundschule" & stunde == 45)
+
+imp_45_gs <- mice(p_data_45_gs, 
+                  maxit = maxit, 
+                  m = m,
+                  meth = meth,
+                  pred = pred,
+                  seed = 666,
+                  printFlag = F
+                  )
+
+# filter for Grundschule and Doppelstunde
+p_data_90_gs <- p_data %>%
+  filter(Schulart == "Grundschule" & stunde == 90) 
+
+imp_90_gs <- mice(p_data_90_gs, 
+                  maxit = maxit, 
+                  m = m,
+                  meth = meth,
+                  pred = pred,
+                  seed = 666,
+                  printFlag = F
+                  )
+
+# filter for Gymnasium and Einzelstunde
+p_data_45_gy <- p_data %>%
+  filter(Schulart == "Gymnasium" & stunde == 45)
+
+imp_45_gy <- mice(p_data_45_gy, 
+                  maxit = maxit, 
+                  m = m,
+                  meth = meth,
+                  pred = pred,
+                  seed = 666,
+                  printFlag = F
+                  )
+
+# filter for Gymnasium and Doppelstunde
+p_data_90_gy <- p_data %>%
+  filter(Schulart == "Gymnasium" & stunde == 90) 
+
+imp_90_gy <- mice(p_data_90_gy, 
+                  maxit = maxit, 
+                  m = m,
+                  meth = meth,
+                  pred = pred,
+                  seed = 666,
+                  printFlag = F
+                  )
+
+cor45_hw_gs <- miceadds::micombine.cor(imp_45_gs, variables = c("beg_hw_min", "dau_hw_min"))
+cor45_hw_gs <- cor45_hw_gs %>%
+    select(variable1, variable2, r)
+
+cor90_hw_gs <- miceadds::micombine.cor(imp_90_gs, variables = c("beg_hw_min", "dau_hw_min"))
+cor90_hw_gs <- cor90_hw_gs %>%
+    select(variable1, variable2, r)
+
+cor45_hw_gy <- miceadds::micombine.cor(imp_45_gy, variables = c("beg_hw_min", "dau_hw_min"))
+cor45_hw_gy <- cor45_hw_gy %>%
+    select(variable1, variable2, r)
+
+cor90_hw_gy <- miceadds::micombine.cor(imp_90_gy, variables = c("beg_hw_min", "dau_hw_min"))
+cor90_hw_gy <- cor90_hw_gy %>%
+    select(variable1, variable2, r)
+
+cor_hw_sa <- bind_rows(cor45_hw_gs[1,], cor90_hw_gs[1,], cor45_hw_gy[1,], cor90_hw_gy[1,])
+cor_hw_sa$Stundenlaenge <- c("Grundschule Einzelstunde", "Grundschule Doppelstunde", "Gymnasium Einzelstunde", "Gymnasium Doppelstunde")
+cor_hw_sa <- cor_hw_sa[,c("Stundenlaenge", "variable1", "variable2", "r")]
+pander(cor_hw_sa)
+```
+
+# Effektstärken
+
+sofern nicht bereits oben berechnet.
 
 ## Effektstärken der Klassenstufe
 
