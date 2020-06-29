@@ -60,6 +60,7 @@ ggarrange(beg_45_p, beg_90_p,
           nrow = 1,
           common.legend = T,
           legend = "bottom")
+ggsave("plots/Abb1.tiff", width = 122, height = 53, units = "mm", dpi = 600, scale = 1.9)
 
 
 dau_45_p <-
@@ -103,7 +104,7 @@ ggarrange(dau_45_p, dau_90_p,
           nrow = 1,
           common.legend = T,
           legend = "bottom")
-
+ggsave("plots/Abb3.tiff", width = 122, height = 53, units = "mm", dpi = 600, scale = 1.9)
 
 # library(ggridges)
 # p_data_sum45 <- data_summary(p_data%>%dplyr::filter(stunde == 45), c("beg_hw_min"), c("Klassenstufe"))
@@ -219,7 +220,7 @@ ggplot(p_data_ridges%>%dplyr::filter(stunde == 45), aes(x=as.factor(Klassenstufe
     scale_fill_brewer(palette = "Set1") +
     scale_y_continuous(expand = c(0, 0), breaks = c(0, 10,20,30,40,50), limits = c(0, 55)) +
     scale_x_discrete(expand = c(0, 0)) +
-    ylab("Minuten seit Stundenbeginn bei Vergabe der HA") +
+    ylab("Minuten seit Stundenbeginn bei HA-Vergabe") +
     labs(size = "Anzahl\neingegangener\nStunden") +
     xlab("Klassenstufe") +
     ggtitle("Einzelstunden") +
@@ -304,14 +305,14 @@ ggarrange(beg_45_p, beg_90_p,
           nrow = 1,
           common.legend = T,
           legend = "bottom")
-
+ggsave("plots/Abb2.tiff", width = 122, height = 53, units = "mm", dpi = 600, scale = 1.9)
 
 ggarrange(dau_45_p, dau_90_p,
           ncol = 2,
           nrow = 1,
           common.legend = T,
           legend = "bottom")
-
+ggsave("plots/Abb4.tiff", width = 122, height = 53, units = "mm", dpi = 600, scale = 1.9)
 
 
 
@@ -498,6 +499,7 @@ ggarrange(ank_p, nen_p, auf_p, sch_p, erl_p, wfr_p, wno_p, ano_p, bfr_p,
           )
 # save.image(lh_p, file = "lh_p.png")
 # savePlot("clipboard", type="wmf")
+ggsave("plots/Abb5.tiff", width = 122, height = 198, units = "mm", dpi = 600, scale = 1.6)
 
 
 
@@ -675,7 +677,7 @@ ggarrange(mel_p, fra_p, not_p, auf_p,
           common.legend = T,
           legend = "bottom"
 )
-
+ggsave("plots/Abb6.tiff", width = 122, height = 90, units = "mm", dpi = 600, scale = 1.9)
 
 #### Nutzungsseite ################################################################################
 
